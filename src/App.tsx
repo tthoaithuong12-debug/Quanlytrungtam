@@ -1753,42 +1753,14 @@ export default function App() {
     }
   }, [user]);
 
-  // Auth & Data Fetching
-  const fetchData = useCallback(async () => {
-    try {
-      const fetchedData = await FirebaseDB.fetchAllData();
-      if (!fetchedData.students || fetchedData.students.length === 0) {
-        // Fallback to Express backend if Firebase is empty
-        const res = await fetch('/api/data');
-        if (res.ok) {
-          const initialData = await res.json();
-          setData(initialData);
-          return;
-        }
-      }
-      setData(fetchedData);
-    } catch (err) {
-      console.error('Failed to fetch from Firebase, falling back to local', err);
-      try {
-        const res = await fetch('/api/data');
-        if (res.ok) {
-          const fetchedData = await res.json();
-          setData(fetchedData);
-        }
-      } catch (fallbackErr) {
-        console.error('Local fetch also failed', fallbackErr);
-      }
-    }
-  }, []);
-
+  // Auth check on mount
   useEffect(() => {
-    const checkAuth = async () => {
+    const checkAuth = () => {
       try {
         const session = localStorage.getItem('auth_session');
         if (session) {
           const userObj = JSON.parse(session);
           setUser(userObj);
-          await fetchData();
         }
       } catch (err) {
         console.error('Session check failed', err);
@@ -1797,7 +1769,36 @@ export default function App() {
       }
     };
     checkAuth();
-  }, [fetchData]);
+  }, []);
+
+  // Real-time Data Sync when user is logged in
+  useEffect(() => {
+    let unsubscribe: (() => void) | undefined;
+    
+    if (user) {
+      unsubscribe = FirebaseDB.listenToAllData(
+        (newData) => {
+          setData(newData);
+        },
+        async (err) => {
+          console.error('Failed to sync from Firebase, falling back to local', err);
+          try {
+            const res = await fetch('/api/data');
+            if (res.ok) {
+              const fetchedData = await res.json();
+              setData(fetchedData);
+            }
+          } catch (fallbackErr) {
+            console.error('Local fetch also failed', fallbackErr);
+          }
+        }
+      );
+    }
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [user?.id]);
 
   // Hardcoded fallback accounts (used when Firebase has no users or is unreachable)
   const FALLBACK_ACCOUNTS = [
