@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Be Vietnam Pro", ui-sans-serif, system-ui, sans-serif;
+  --color-primary: #4A90E2;
+  --color-secondary: #FF9500;
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-error: #ef4444;
+}
+
+@layer base {
+  body {
+    @apply bg-slate-50 text-slate-900 font-sans antialiased;
+  }
+}
+
+.glass-card {
+  @apply bg-white/80 backdrop-blur-md border border-white/20 shadow-lg rounded-2xl;
+}
+
+.gradient-bg {
+  background: linear-gradient(135deg, #4A90E2 0%, #FF9500 100%);
+}
+
+.btn-primary {
+  @apply px-4 py-2 bg-primary text-white rounded-xl font-medium transition-all hover:opacity-90 active:scale-95 shadow-md;
+}
+
+.btn-secondary {
+  @apply px-4 py-2 bg-secondary text-white rounded-xl font-medium transition-all hover:opacity-90 active:scale-95 shadow-md;
+}
+
+.input-field {
+  @apply w-full px-4 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-300 rounded-full hover:bg-slate-400;
+}

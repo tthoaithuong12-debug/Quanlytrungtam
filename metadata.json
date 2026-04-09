@@ -1,0 +1,9 @@
+{
+  "name": "Anh Ngữ Ms. Thương",
+  "description": "Hệ thống quản lý trung tâm Anh Ngữ Ms. Thương toàn diện tích hợp AI, giúp số hóa quy trình vận hành, quản lý học viên, giáo viên, tài chính và báo cáo thông minh.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ]
+}

@@ -1,0 +1,95 @@
+{
+  "students": [
+    {
+      "id": "std_001",
+      "name": "Nguyễn Văn A",
+      "email": "vana@example.com",
+      "phone": "0901234567",
+      "dob": "2010-05-15",
+      "parentName": "Nguyễn Văn C",
+      "parentPhone": "0901112223",
+      "goal": "IELTS 6.5",
+      "classes": [
+        "cls_001"
+      ],
+      "status": "active",
+      "joinedDate": "2023-09-01",
+      "totalPaid": 5000000,
+      "balance": 0
+    }
+  ],
+  "teachers": [
+    {
+      "id": "tch_001",
+      "name": "Mr. Smith",
+      "shortName": "Mr. Smith",
+      "email": "smith@example.com",
+      "phone": "0987654321",
+      "specialization": "IELTS Expert",
+      "baseSalary": 10000000,
+      "hourlyRate": 500000,
+      "kpi": 95,
+      "status": "active",
+      "type": "full-time",
+      "color": "#4A90E2",
+      "avatar": "https://i.pravatar.cc/150?u=tch_001",
+      "startDate": "2023-01-01"
+    }
+  ],
+  "classes": [
+    {
+      "id": "cls_001",
+      "name": "IELTS Foundation",
+      "teacherId": "tch_001",
+      "schedule": [
+        {
+          "day": 1,
+          "startTime": "18:00",
+          "endTime": "20:00",
+          "teacherId": "tch_001"
+        },
+        {
+          "day": 3,
+          "startTime": "18:00",
+          "endTime": "20:00",
+          "teacherId": "tch_001"
+        }
+      ],
+      "startDate": "2024-01-01",
+      "endDate": "2024-06-30",
+      "tuitionFee": 4500000,
+      "color": "#4A90E2",
+      "students": [
+        "std_001"
+      ],
+      "status": "active",
+      "type": "IELTS",
+      "room": "Phòng 101"
+    }
+  ],
+  "lessons": [],
+  "transactions": [],
+  "monthlyBills": [],
+  "users": [
+    {
+      "id": "admin_001",
+      "username": "admin",
+      "password": "$2b$10$QdLsBHV01gnYfKJTPqK0LOa9.YgzxfqAA4kfo2oQ4PT4QMQYnmOWa",
+      "role": "admin"
+    },
+    {
+      "id": "user_tch_001",
+      "username": "smith",
+      "password": "$2b$10$4ojj2bX12iLad.4X2dNpS.KU9xpgy79cFLiEhYvvwTcbKY3pfUxA6",
+      "role": "teacher",
+      "teacherId": "tch_001",
+      "isFirstLogin": true
+    }
+  ],
+  "settings": {
+    "currency": "VND",
+    "theme": "light",
+    "centerName": "Anh Ngữ Ms. Thương",
+    "aiModel": "gemini-3-flash-preview"
+  }
+}
