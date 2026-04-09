@@ -1,8 +1,67 @@
-import { collection, getDocs, doc, setDoc, writeBatch } from "firebase/firestore";
+import { collection, getDocs, doc, setDoc, writeBatch, onSnapshot } from "firebase/firestore";
 import { db } from "./config";
 import { AppData, Student, Teacher, Class, Lesson, Transaction, MonthlyBill, User } from "../../types";
 
 export const FirebaseDB = {
+  listenToAllData(callback: (data: AppData) => void, onError: (err: any) => void): () => void {
+    const data: AppData = {
+      students: [], teachers: [], classes: [], lessons: [], transactions: [], monthlyBills: [], users: [],
+      settings: { currency: "VND", theme: "light", centerName: "English Center", aiModel: "gemini-3-flash" }
+    };
+
+    const collections = ['students', 'teachers', 'classes', 'lessons', 'transactions', 'monthlyBills', 'users'];
+    const unsubscribers: (() => void)[] = [];
+    
+    let loadedCount = 0;
+    const requiredLoads = collections.length + 1; // +1 for settings
+    let hasReturnedFirst = false;
+
+    // Timeout mechanism: if after 5 seconds still not loaded, throw error to fallback
+    const timer = setTimeout(() => {
+      if (!hasReturnedFirst) {
+        onError(new Error("Firebase connection timeout"));
+      }
+    }, 5000);
+
+    const fireCallbackIfReady = () => {
+      loadedCount++;
+      if (loadedCount >= requiredLoads && !hasReturnedFirst) {
+        hasReturnedFirst = true;
+        clearTimeout(timer);
+        callback({ ...data });
+      }
+    };
+
+    try {
+      collections.forEach(col => {
+        const unsub = onSnapshot(collection(db, col), (snap) => {
+          (data as any)[col] = snap.docs.map(d => d.data());
+          if (!hasReturnedFirst) fireCallbackIfReady();
+          else callback({ ...data });
+        }, (err) => {
+          if (!hasReturnedFirst) onError(err);
+        });
+        unsubscribers.push(unsub);
+      });
+
+      const unsubSettings = onSnapshot(collection(db, 'settings'), (snap) => {
+        if (!snap.empty) {
+          data.settings = snap.docs[0].data() as AppData['settings'];
+        }
+        if (!hasReturnedFirst) fireCallbackIfReady();
+        else callback({ ...data });
+      }, (err) => {
+        if (!hasReturnedFirst) onError(err);
+      });
+      unsubscribers.push(unsubSettings);
+
+    } catch (err) {
+      if (!hasReturnedFirst) onError(err);
+    }
+
+    return () => unsubscribers.forEach(u => u());
+  },
+
   async fetchAllData(): Promise<AppData> {
     const data: AppData = {
       students: [],

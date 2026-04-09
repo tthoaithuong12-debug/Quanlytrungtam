@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import bcrypt from 'bcryptjs';
 import { AppData, Student, Teacher, Class, Lesson, Transaction, MonthlyBill, User } from './types';
 import { INITIAL_DATA } from './constants';
@@ -1739,6 +1739,7 @@ export default function App() {
   const [data, setData] = useState<AppData>(INITIAL_DATA);
   const [user, setUser] = useState<User | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
+  const [isDataLoaded, setIsDataLoaded] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [financeTab, setFinanceTab] = useState('overview');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -1776,9 +1777,11 @@ export default function App() {
     let unsubscribe: (() => void) | undefined;
     
     if (user) {
+      setIsDataLoaded(false);
       unsubscribe = FirebaseDB.listenToAllData(
         (newData) => {
           setData(newData);
+          setIsDataLoaded(true);
         },
         async (err) => {
           console.error('Failed to sync from Firebase, falling back to local', err);
@@ -1789,10 +1792,14 @@ export default function App() {
               setData(fetchedData);
             }
           } catch (fallbackErr) {
-            console.error('Local fetch also failed', fallbackErr);
+            console.error('Local fetch also failed, using default data', fallbackErr);
           }
+          // Even on error, mark data as loaded so the app doesn't stay on loading screen
+          setIsDataLoaded(true);
         }
       );
+    } else {
+      setIsDataLoaded(false);
     }
 
     return () => {
@@ -5548,12 +5555,12 @@ export default function App() {
     );
   };
 
-  if (!isAuthReady) {
+  if (!isAuthReady || (user && !isDataLoaded)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="flex flex-col items-center gap-4">
           <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-          <p className="text-slate-500 font-medium">Đang tải hệ thống...</p>
+          <p className="text-slate-500 font-medium">{!isAuthReady ? 'Đang tải hệ thống...' : 'Đang đồng bộ dữ liệu...'}</p>
         </div>
       </div>
     );
