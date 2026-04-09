@@ -5228,6 +5228,7 @@ export default function App() {
                               confirmButtonText: 'Cập nhật',
                               cancelButtonText: 'Hủy'
                             });
+                            if (newPassword) {
                               try {
                                 const newHashedPassword = bcrypt.hashSync(newPassword, 10);
                                 const updatedUsers = data.users.map(usr => usr.id === u.id ? { ...usr, password: newHashedPassword, isFirstLogin: true } : usr);
