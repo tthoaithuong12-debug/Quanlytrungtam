@@ -5228,18 +5228,13 @@ export default function App() {
                               confirmButtonText: 'Cập nhật',
                               cancelButtonText: 'Hủy'
                             });
-                            if (newPassword) {
                               try {
-                                const res = await fetch(`/api/admin/users/${u.id}/reset-password`, {
-                                  method: 'POST',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({ newPassword })
-                                });
-                                if (res.ok) {
-                                  Swal.fire('Thành công', 'Mật khẩu đã được đặt lại', 'success');
-                                } else {
-                                  Swal.fire('Lỗi', 'Không thể đặt lại mật khẩu', 'error');
-                                }
+                                const newHashedPassword = bcrypt.hashSync(newPassword, 10);
+                                const updatedUsers = data.users.map(usr => usr.id === u.id ? { ...usr, password: newHashedPassword, isFirstLogin: true } : usr);
+                                const newData = { ...data, users: updatedUsers };
+                                setData(newData);
+                                await FirebaseDB.saveAllData(newData);
+                                Swal.fire('Thành công', 'Mật khẩu đã được đặt lại', 'success');
                               } catch (err) {
                                 Swal.fire('Lỗi', 'Lỗi kết nối', 'error');
                               }
@@ -5261,8 +5256,10 @@ export default function App() {
                             });
                             if (result.isConfirmed) {
                               try {
-                                await fetch(`/api/admin/users/${u.id}`, { method: 'DELETE' });
-                                await fetchData();
+                                const updatedUsers = data.users.filter(usr => usr.id !== u.id);
+                                const newData = { ...data, users: updatedUsers };
+                                setData(newData);
+                                await FirebaseDB.saveAllData(newData);
                                 Swal.fire('Đã xóa', '', 'success');
                               } catch (err) {
                                 Swal.fire('Lỗi', 'Không thể xóa tài khoản', 'error');
@@ -5292,19 +5289,25 @@ export default function App() {
                       const { value: formValues } = await Swal.fire({
                         title: 'Tạo tài khoản giáo viên',
                         html:
-                          '<div class="space-y-4">' +
-                          '<div class="text-left"><label class="text-xs font-bold text-slate-400 uppercase">Tên đăng nhập</label>' +
-                          '<input id="swal-username" class="swal2-input !mt-1 !w-full" placeholder="Ví dụ: gv_nguyenvan"></div>' +
-                          '<div class="text-left"><label class="text-xs font-bold text-slate-400 uppercase">Mật khẩu</label>' +
-                          '<input id="swal-password" type="password" class="swal2-input !mt-1 !w-full" placeholder="Nhập mật khẩu"></div>' +
-                          '<div class="text-left"><label class="text-xs font-bold text-slate-400 uppercase">Chọn giáo viên</label>' +
-                          '<select id="swal-teacherId" class="swal2-input !mt-1 !w-full">' +
+                          '<div class="space-y-4 px-2">' +
+                          '<div class="text-left space-y-1"><label class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Tên đăng nhập</label>' +
+                          '<input id="swal-username" class="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all text-sm" placeholder="Ví dụ: gv_nguyenvan"></div>' +
+                          '<div class="text-left space-y-1"><label class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Mật khẩu</label>' +
+                          '<input id="swal-password" type="password" class="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all text-sm" placeholder="Nhập mật khẩu"></div>' +
+                          '<div class="text-left space-y-1"><label class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Chọn giáo viên</label>' +
+                          '<select id="swal-teacherId" class="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all text-sm bg-white appearance-none">' +
                           teachersWithoutAccount.map(t => `<option value="${t.id}">${t.name}</option>`).join('') +
                           '</select></div>' +
                           '</div>',
+                        customClass: {
+                          popup: 'rounded-3xl p-6',
+                          confirmButton: 'px-8 py-3 bg-primary text-white font-bold rounded-xl shadow-lg hover:shadow-primary/30 transition-all w-full mt-4',
+                          title: 'text-xl font-bold text-slate-800'
+                        },
+                        buttonsStyling: false,
                         focusConfirm: false,
                         preConfirm: () => {
-                          const username = (document.getElementById('swal-username') as HTMLInputElement).value;
+                          const username = (document.getElementById('swal-username') as HTMLInputElement).value.trim();
                           const password = (document.getElementById('swal-password') as HTMLInputElement).value;
                           const teacherId = (document.getElementById('swal-teacherId') as HTMLSelectElement).value;
                           
@@ -5317,26 +5320,34 @@ export default function App() {
                             username,
                             password,
                             teacherId,
-                            role: 'teacher'
+                            role: 'teacher' as const
                           }
                         }
                       });
 
                       if (formValues) {
                         try {
-                          const res = await fetch('/api/admin/users', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(formValues)
-                          });
-                          if (res.ok) {
-                            await fetchData();
-                            Swal.fire('Thành công', 'Đã tạo tài khoản giáo viên', 'success');
-                          } else {
-                            const err = await res.json();
-                            Swal.fire('Lỗi', err.message, 'error');
+                          const usernameExists = data.users?.some(u => u.username === formValues.username);
+                          if (usernameExists) {
+                            Swal.fire('Lỗi', 'Tên đăng nhập đã tồn tại', 'error');
+                            return;
                           }
+
+                          const newUser: User = {
+                            id: 'usr_' + Date.now().toString(),
+                            username: formValues.username,
+                            password: bcrypt.hashSync(formValues.password, 10),
+                            role: formValues.role,
+                            teacherId: formValues.teacherId,
+                            isFirstLogin: true
+                          };
+                          
+                          const newData = { ...data, users: [...(data.users || []), newUser] };
+                          setData(newData);
+                          await FirebaseDB.saveAllData(newData);
+                          Swal.fire('Thành công', 'Đã tạo tài khoản giáo viên', 'success');
                         } catch (err) {
+                          console.error(err);
                           Swal.fire('Lỗi', 'Không thể tạo tài khoản', 'error');
                         }
                       }
