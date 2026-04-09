@@ -2385,18 +2385,28 @@ export default function App() {
     const weekDays = Array.from({ length: 7 }, (_, i) => startOfWeek.add(i, 'day'));
 
     // Notifications logic
+    // For teachers: only show notifications about their own classes
+    const myTeacher = user.role !== 'admin' ? data.teachers.find(t => t.id === user.teacherId) : null;
+    const myClassIds = user.role !== 'admin' 
+      ? data.classes.filter(c => c.teacherId === user.teacherId || (c.schedule || []).some(s => s.teacherId === user.teacherId)).map(c => c.id)
+      : data.classes.map(c => c.id);
+
     const notifications = [
-      ...(data.students || []).filter(s => (s.balance || 0) > 0).map(s => ({
+      // Debt notifications - admin only
+      ...(user.role === 'admin' ? (data.students || []).filter(s => (s.balance || 0) > 0).map(s => ({
         id: `debt_${s.id}`,
         type: 'debt',
         title: 'Học phí chưa đóng',
         message: `${s.name || 'Học viên'} còn nợ ${formatCurrency(s.balance || 0)}`,
         icon: Wallet,
         color: 'text-error'
-      })),
+      })) : []),
+      // Class notifications - filtered by teacher's classes
       ...(data.classes || []).filter(c => {
         const today = dayjs().day();
-        return (c.schedule || []).some(s => s.day === today);
+        const hasScheduleToday = (c.schedule || []).some(s => s.day === today);
+        const isMyClass = myClassIds.includes(c.id);
+        return hasScheduleToday && isMyClass;
       }).map(c => ({
         id: `class_${c.id}`,
         type: 'upcoming',
@@ -2405,8 +2415,8 @@ export default function App() {
         icon: Calendar,
         color: 'text-primary'
       })),
-      ...(data.teachers || []).filter(t => {
-        // Simple logic: if a teacher has classes today but no lesson log exists for today
+      // Attendance notifications - admin only
+      ...(user.role === 'admin' ? (data.teachers || []).filter(t => {
         const today = dayjs().day();
         const hasClassToday = (data.classes || []).some(c => c.teacherId === t.id && (c.schedule || []).some(s => s.day === today));
         const hasLessonToday = (data.lessons || []).some(l => l.date === dayjs().format('YYYY-MM-DD') && (data.classes || []).find(c => c.id === l.classId)?.teacherId === t.id);
@@ -2418,7 +2428,7 @@ export default function App() {
         message: `GV ${t.name || 'Giáo viên'} chưa cập nhật điểm danh hôm nay`,
         icon: UserCheck,
         color: 'text-warning'
-      }))
+      })) : [])
     ];
 
     return (
@@ -2433,31 +2443,70 @@ export default function App() {
             </>
           ) : (
             <>
-              <StatCard title="Lớp của tôi" value={data.classes.length.toString()} icon={GraduationCap} color="bg-primary" />
-              <StatCard title="Số buổi dạy tháng này" value={data.lessons.length.toString()} icon={Calendar} color="bg-success" />
-              <StatCard title="Tổng giờ dạy" value={data.lessons.reduce((acc, l) => {
-                const cls = data.classes.find(c => c.id === l.classId);
-                const sched = cls?.schedule[0];
-                if (sched) {
-                  const start = dayjs(`2000-01-01 ${sched.startTime}`);
-                  const end = dayjs(`2000-01-01 ${sched.endTime}`);
-                  return acc + end.diff(start, 'hour', true);
-                }
-                return acc;
-              }, 0).toFixed(1)} icon={Clock} color="bg-secondary" />
-              <StatCard title="Lương dự kiến" value={formatCurrency(
-                (data.teachers[0]?.baseSalary || 0) + 
-                (data.lessons.reduce((acc, l) => {
+              {(() => {
+                const currentMonth = dayjs().format('YYYY-MM');
+                const myClasses = data.classes.filter(c => c.teacherId === user.teacherId || (c.schedule || []).some(s => s.teacherId === user.teacherId));
+                const myLessons = data.lessons.filter(l => {
                   const cls = data.classes.find(c => c.id === l.classId);
-                  const sched = cls?.schedule[0];
-                  if (sched) {
-                    const start = dayjs(`2000-01-01 ${sched.startTime}`);
-                    const end = dayjs(`2000-01-01 ${sched.endTime}`);
-                    return acc + end.diff(start, 'hour', true);
+                  return cls && (cls.teacherId === user.teacherId || (cls.schedule || []).some(s => s.teacherId === user.teacherId));
+                }).filter(l => l.date && l.date.startsWith(currentMonth));
+                
+                let totalHours = 0;
+                const hoursByClass: { className: string; hours: number; sessions: number }[] = [];
+                
+                myClasses.forEach(cls => {
+                  const clsLessons = myLessons.filter(l => l.classId === cls.id);
+                  let clsHours = 0;
+                  clsLessons.forEach(() => {
+                    const sched = cls.schedule?.[0];
+                    if (sched) {
+                      const s = dayjs(`2000-01-01 ${sched.startTime}`);
+                      const e = dayjs(`2000-01-01 ${sched.endTime}`);
+                      clsHours += e.diff(s, 'hour', true);
+                    }
+                  });
+                  totalHours += clsHours;
+                  if (clsLessons.length > 0) {
+                    hoursByClass.push({ className: cls.name, hours: clsHours, sessions: clsLessons.length });
                   }
-                  return acc;
-                }, 0) * (data.teachers[0]?.hourlyRate || 0) * ((data.teachers[0]?.kpi || 0) / 100))
-              )} icon={Wallet} color="bg-warning" />
+                });
+                
+                const teacher = data.teachers.find(t => t.id === user.teacherId);
+                const estimatedSalary = (teacher?.baseSalary || 0) + (totalHours * (teacher?.hourlyRate || 0) * ((teacher?.kpi || 100) / 100));
+                
+                return (
+                  <>
+                    <StatCard title="Lớp của tôi" value={myClasses.length.toString()} icon={GraduationCap} color="bg-primary" />
+                    <StatCard title="Số buổi dạy tháng này" value={myLessons.length.toString()} icon={Calendar} color="bg-success" />
+                    <div className="glass-card p-6 relative group cursor-help">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider mb-1">Tổng giờ dạy</p>
+                          <h3 className="text-2xl font-bold text-slate-800">{totalHours.toFixed(1)}</h3>
+                        </div>
+                        <div className="w-12 h-12 rounded-2xl bg-secondary flex items-center justify-center text-white shadow-lg">
+                          <Clock size={24} />
+                        </div>
+                      </div>
+                      {hoursByClass.length > 0 && (
+                        <div className="absolute z-50 hidden group-hover:block top-full left-0 mt-2 w-72 bg-white rounded-2xl shadow-2xl border border-slate-100 p-4 space-y-2">
+                          <p className="text-[10px] font-bold text-slate-400 uppercase mb-2">Chi tiết giờ dạy tháng này</p>
+                          {hoursByClass.map((item, idx) => (
+                            <div key={idx} className="flex items-center justify-between py-1.5 border-b border-slate-50 last:border-0">
+                              <span className="text-xs font-medium text-slate-700">{item.className}</span>
+                              <div className="text-right">
+                                <span className="text-xs font-bold text-primary">{item.hours.toFixed(1)}h</span>
+                                <span className="text-[10px] text-slate-400 ml-1">({item.sessions} buổi)</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <StatCard title="Lương dự kiến" value={formatCurrency(estimatedSalary)} icon={Wallet} color="bg-warning" />
+                  </>
+                );
+              })()}
             </>
           )}
         </div>
@@ -2500,7 +2549,9 @@ export default function App() {
                       <div key={slot} className="grid grid-cols-8 border-b border-slate-50 min-h-[60px]">
                         <div className="flex items-center text-[10px] font-bold text-slate-400">{slot}</div>
                         {weekDays.map((date, i) => {
-                          const sessions = getSessionsForDate(date, data.classes, data.lessons).filter(s => s.startTime === slot);
+                          const allSessions = getSessionsForDate(date, data.classes, data.lessons).filter(s => s.startTime === slot);
+                          // Teacher: only show sessions from my classes
+                          const sessions = user.role === 'admin' ? allSessions : allSessions.filter(s => s.teacherId === user.teacherId || s.assistantId === user.teacherId);
                           return (
                             <div key={i} className="p-1 border-l border-slate-50 flex flex-col gap-1">
                               {sessions.length > 0 ? sessions.map((s, idx) => {
@@ -3020,7 +3071,7 @@ export default function App() {
         { id: 'overview', label: 'Tổng quan', icon: LayoutDashboard },
         { id: 'students', label: 'Học viên', icon: Users },
         { id: 'sessions', label: 'Quản lý buổi học', icon: ListTodo },
-        { id: 'finance', label: 'Tài chính', icon: DollarSign },
+        ...(user.role === 'admin' ? [{ id: 'finance', label: 'Tài chính', icon: DollarSign }] : []),
       ];
 
       return (
@@ -3063,13 +3114,15 @@ export default function App() {
               )}>
                 {status === 'active' ? 'Đang mở' : status === 'upcoming' ? 'Sắp mở' : 'Đã kết thúc'}
               </div>
-              <button 
-                onClick={() => { setEditingClass(cls); setIsClassModalOpen(true); }}
-                className="p-2 bg-slate-100 hover:bg-slate-200 rounded-xl text-slate-600 transition-all"
-                title="Chỉnh sửa thông tin lớp"
-              >
-                <Settings size={18} />
-              </button>
+              {user.role === 'admin' && (
+                <button 
+                  onClick={() => { setEditingClass(cls); setIsClassModalOpen(true); }}
+                  className="p-2 bg-slate-100 hover:bg-slate-200 rounded-xl text-slate-600 transition-all"
+                  title="Chỉnh sửa thông tin lớp"
+                >
+                  <Settings size={18} />
+                </button>
+              )}
             </div>
           </div>
 
@@ -3713,7 +3766,9 @@ export default function App() {
       const status = getClassStatus(cls);
       const matchesStatus = classStatusFilter === 'all' || status === classStatusFilter;
       const matchesTeacher = classTeacherFilter === 'all' || cls.teacherId === classTeacherFilter || (cls.schedule || []).some(s => s.teacherId === classTeacherFilter);
-      return matchesStatus && matchesTeacher;
+      // Teacher role: only see their own classes
+      const isMyClass = user.role === 'admin' || cls.teacherId === user.teacherId || (cls.schedule || []).some(s => s.teacherId === user.teacherId);
+      return matchesStatus && matchesTeacher && isMyClass;
     });
 
     return (
@@ -3898,7 +3953,10 @@ export default function App() {
   };
 
   const renderTeachers = () => {
-    const filteredTeachers = data.teachers.filter(teacher => {
+    // Teacher role: only show their own profile
+    const baseTeachers = user.role === 'admin' ? data.teachers : data.teachers.filter(t => t.id === user.teacherId);
+    
+    const filteredTeachers = baseTeachers.filter(teacher => {
       const searchLower = (teacherSearch || '').toLowerCase();
       const matchesSearch = 
         (teacher.name || '').toLowerCase().includes(searchLower) ||
@@ -4114,10 +4172,51 @@ export default function App() {
                         }
                       });
                     }}
-                    className="w-full py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 hover:border-primary/30 transition-all flex items-center justify-center gap-2"
+                    className="flex-1 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 hover:border-primary/30 transition-all flex items-center justify-center gap-2"
                   >
                     <Calendar size={14} />
-                    <span>Xem lịch dạy thực tế</span>
+                    <span>Lịch tuần này</span>
+                  </button>
+
+                  <button 
+                    onClick={() => {
+                      const history = Object.keys(teacher.salaryAdjustments || {})
+                        .filter(key => teacher.salaryAdjustments?.[key]?.paid)
+                        .sort((a, b) => b.localeCompare(a)); // sort descending
+                      
+                      Swal.fire({
+                        title: `Lịch sử nhận lương`,
+                        html: `
+                          <div class="space-y-3 max-h-[400px] overflow-y-auto pr-2 text-left">
+                            ${history.length > 0 ? history.map(h => {
+                              const adj = teacher.salaryAdjustments![h];
+                              return `
+                              <div class="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                                <div class="flex justify-between border-b border-slate-200 pb-2 mb-2">
+                                  <span class="font-bold text-slate-700">Tháng ${h}</span>
+                                  <span class="text-[10px] font-bold text-success flex items-center gap-1"><i class="fas fa-check-circle"></i> Đã thanh toán</span>
+                                </div>
+                                <div class="space-y-1 text-sm">
+                                  <div class="flex justify-between"><span class="text-slate-500">Phụ cấp:</span> <span class="font-medium text-success">+${Number(adj.allowance).toLocaleString()}đ</span></div>
+                                  <div class="flex justify-between"><span class="text-slate-500">Khấu trừ:</span> <span class="font-medium text-error">-${Number(adj.penalty).toLocaleString()}đ</span></div>
+                                  ${adj.notes ? `<p class="text-xs text-slate-400 italic mt-2 border-l-2 pl-2 border-slate-200">Ghi chú: ${adj.notes}</p>` : ''}
+                                </div>
+                              </div>
+                              `;
+                            }).join('') : '<div class="py-8 text-center text-slate-400 italic">Chưa có dữ liệu nhận lương</div>'}
+                          </div>
+                        `,
+                        confirmButtonText: 'Đóng',
+                        customClass: {
+                          container: 'z-[200]',
+                          popup: 'rounded-3xl border-none shadow-2xl'
+                        }
+                      });
+                    }}
+                    className="flex-1 py-2.5 bg-primary/10 border border-primary/20 rounded-xl text-xs font-bold text-primary hover:bg-primary hover:text-white transition-all flex items-center justify-center gap-2"
+                  >
+                    <Wallet size={14} />
+                    <span>Lịch sử lương</span>
                   </button>
                 </div>
               </div>
@@ -4942,10 +5041,13 @@ export default function App() {
     // Pre-fetch all sessions for the week to avoid recalculating
     const weekSessions = daysOrder.map(dayIndex => {
       const date = startOfWeek.add(dayIndex === 0 ? 6 : dayIndex - 1, 'day');
+      const allSessions = getSessionsForDate(date, data.classes, data.lessons);
+      // Teacher: only show sessions from my classes
+      const filteredSessions = user.role === 'admin' ? allSessions : allSessions.filter(s => s.teacherId === user.teacherId || s.assistantId === user.teacherId);
       return {
         date,
         dateStr: date.format('YYYY-MM-DD'),
-        sessions: getSessionsForDate(date, data.classes, data.lessons)
+        sessions: filteredSessions
       };
     });
 
@@ -5569,7 +5671,9 @@ export default function App() {
               <SidebarItem icon={Wallet} label="Tài chính" active={activeTab === 'finance'} onClick={() => { setActiveTab('finance'); setViewingClassId(null); }} />
             )}
             <SidebarItem icon={Library} label="Học liệu" active={activeTab === 'resources'} onClick={() => { setActiveTab('resources'); setViewingClassId(null); }} />
-            <SidebarItem icon={Settings} label="Cài đặt" active={activeTab === 'settings'} onClick={() => { setActiveTab('settings'); setViewingClassId(null); }} />
+            {user.role === 'admin' && (
+              <SidebarItem icon={Settings} label="Cài đặt" active={activeTab === 'settings'} onClick={() => { setActiveTab('settings'); setViewingClassId(null); }} />
+            )}
           </nav>
         </div>
 
