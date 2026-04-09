@@ -101,6 +101,7 @@ export interface Transaction {
   description: string;
   date: string;
   relatedId?: string; // Student ID or Teacher ID
+  createdBy?: string;
 }
 
 export interface MonthlyBill {
