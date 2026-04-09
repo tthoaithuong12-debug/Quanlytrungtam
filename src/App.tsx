@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import bcrypt from 'bcryptjs';
 import { AppData, Student, Teacher, Class, Lesson, Transaction, MonthlyBill, User } from './types';
 import { INITIAL_DATA } from './constants';
 import { cn } from './lib/utils';
@@ -1783,14 +1784,14 @@ export default function App() {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const res = await fetch('/api/auth/me');
-        if (res.ok) {
-          const { user } = await res.json();
-          setUser(user);
+        const session = localStorage.getItem('auth_session');
+        if (session) {
+          const userObj = JSON.parse(session);
+          setUser(userObj);
           await fetchData();
         }
       } catch (err) {
-        console.error('Auth check failed', err);
+        console.error('Session check failed', err);
       } finally {
         setIsAuthReady(true);
       }
@@ -1805,38 +1806,35 @@ export default function App() {
     const password = formData.get('password') as string;
 
     try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
-      });
-      if (res.ok) {
-        const { user } = await res.json();
-        setUser(user);
-        await fetchData();
+      const allData = await FirebaseDB.fetchAllData();
+      const users = allData.users || [];
+      const matchedUser = users.find(u => u.username === username);
+
+      if (matchedUser && bcrypt.compareSync(password, matchedUser.password)) {
+        setUser(matchedUser);
+        localStorage.setItem('auth_session', JSON.stringify(matchedUser));
+        
+        setData(allData); 
         Swal.fire('Thành công', 'Đã đăng nhập hệ thống', 'success');
         
-        if (user.isFirstLogin) {
+        if (matchedUser.isFirstLogin) {
           handleChangePassword();
         }
       } else {
         Swal.fire('Lỗi', 'Tài khoản hoặc mật khẩu không đúng', 'error');
       }
     } catch (err) {
-      Swal.fire('Lỗi', 'Không thể kết nối đến máy chủ', 'error');
+      console.error(err);
+      Swal.fire('Lỗi', 'Lỗi kết nối cơ sở dữ liệu', 'error');
     }
   };
 
   const handleLogout = async () => {
-    try {
-      await fetch('/api/auth/logout', { method: 'POST' });
-      setUser(null);
-      setData(INITIAL_DATA);
-      setActiveTab('dashboard');
-      Swal.fire('Đã đăng xuất', 'Hẹn gặp lại bạn!', 'info');
-    } catch (err) {
-      console.error('Logout failed', err);
-    }
+    localStorage.removeItem('auth_session');
+    setUser(null);
+    setData(INITIAL_DATA);
+    setActiveTab('dashboard');
+    Swal.fire('Đã đăng xuất', 'Hẹn gặp lại bạn!', 'info');
   };
 
   const handleChangePassword = async () => {
@@ -1854,18 +1852,30 @@ export default function App() {
       cancelButtonText: 'Để sau'
     });
 
-    if (newPassword) {
+    if (newPassword && user) {
       try {
-        const res = await fetch('/api/auth/change-password', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ newPassword })
+        const hashedPassword = bcrypt.hashSync(newPassword, 10);
+        
+        const updatedUsers = data.users.map(u => {
+          if (u.id === user.id) {
+            return { ...u, password: hashedPassword, isFirstLogin: false };
+          }
+          return u;
         });
-        if (res.ok) {
-          Swal.fire('Thành công', 'Mật khẩu đã được thay đổi', 'success');
-        }
+        
+        const newData = { ...data, users: updatedUsers };
+        setData(newData);
+        
+        await FirebaseDB.saveAllData(newData);
+        
+        const updatedUser = updatedUsers.find(u => u.id === user.id);
+        setUser(updatedUser!);
+        localStorage.setItem('auth_session', JSON.stringify(updatedUser));
+
+        Swal.fire('Thành công', 'Mật khẩu đã được thay đổi', 'success');
       } catch (err) {
-        Swal.fire('Lỗi', 'Không thể đổi mật khẩu', 'error');
+        console.error(err);
+        Swal.fire('Lỗi', 'Không thể lưu mật khẩu', 'error');
       }
     }
   };
