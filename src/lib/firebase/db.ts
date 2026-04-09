@@ -22,18 +22,30 @@ export const FirebaseDB = {
 
     const collections = ['students', 'teachers', 'classes', 'lessons', 'transactions', 'monthlyBills', 'users'];
     
-    for (const col of collections) {
-      const snap = await getDocs(collection(db, col));
-      const colData = snap.docs.map(doc => doc.data());
-      (data as any)[col] = colData;
-    }
+    // Fail fast with a 5 second timeout to prevent the 30s hang if Firebase is unreachable
+    const timeoutPromise = new Promise<never>((_, reject) => 
+      setTimeout(() => reject(new Error("Firebase connection timeout")), 5000)
+    );
 
-    const settingsSnap = await getDocs(collection(db, 'settings'));
-    if (!settingsSnap.empty) {
-      data.settings = settingsSnap.docs[0].data() as AppData['settings'];
-    }
+    const fetchPromise = (async () => {
+      const promises = collections.map(async (col) => {
+        const snap = await getDocs(collection(db, col));
+        return { col, data: snap.docs.map(doc => doc.data()) };
+      });
 
-    return data;
+      const results = await Promise.all(promises);
+      results.forEach(({ col, data: colData }) => {
+        (data as any)[col] = colData;
+      });
+
+      const settingsSnap = await getDocs(collection(db, 'settings'));
+      if (!settingsSnap.empty) {
+        data.settings = settingsSnap.docs[0].data() as AppData['settings'];
+      }
+      return data;
+    })();
+
+    return Promise.race([fetchPromise, timeoutPromise]);
   },
 
   async saveAllData(data: AppData): Promise<void> {
