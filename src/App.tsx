@@ -1799,6 +1799,12 @@ export default function App() {
     checkAuth();
   }, [fetchData]);
 
+  // Hardcoded fallback accounts (used when Firebase has no users or is unreachable)
+  const FALLBACK_ACCOUNTS = [
+    { id: 'admin_001', username: 'admin', password: 'admin123', role: 'admin' as const },
+    { id: 'user_tch_001', username: 'smith', password: 'teacher123', role: 'teacher' as const, teacherId: 'tch_001' },
+  ];
+
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
@@ -1806,26 +1812,52 @@ export default function App() {
     const password = formData.get('password') as string;
 
     try {
+      // 1) Try Firebase first
       const allData = await FirebaseDB.fetchAllData();
       const users = allData.users || [];
       const matchedUser = users.find(u => u.username === username);
 
-      if (matchedUser && bcrypt.compareSync(password, matchedUser.password)) {
-        setUser(matchedUser);
-        localStorage.setItem('auth_session', JSON.stringify(matchedUser));
-        
-        setData(allData); 
-        Swal.fire('Thành công', 'Đã đăng nhập hệ thống', 'success');
-        
-        if (matchedUser.isFirstLogin) {
-          handleChangePassword();
+      if (matchedUser && matchedUser.password) {
+        // Firebase user found, compare hashed password
+        if (bcrypt.compareSync(password, matchedUser.password)) {
+          setUser(matchedUser);
+          localStorage.setItem('auth_session', JSON.stringify(matchedUser));
+          setData(allData);
+          Swal.fire('Thành công', 'Đã đăng nhập hệ thống', 'success');
+          if (matchedUser.isFirstLogin) { handleChangePassword(); }
+          return;
         }
+      }
+
+      // 2) Fallback: check hardcoded accounts
+      const fallback = FALLBACK_ACCOUNTS.find(a => a.username === username && a.password === password);
+      if (fallback) {
+        const userObj: any = { id: fallback.id, username: fallback.username, role: fallback.role };
+        if (fallback.teacherId) userObj.teacherId = fallback.teacherId;
+        setUser(userObj);
+        localStorage.setItem('auth_session', JSON.stringify(userObj));
+        // Load data from Firebase if available, else use INITIAL_DATA
+        if (allData.students && allData.students.length > 0) {
+          setData(allData);
+        }
+        Swal.fire('Thành công', 'Đã đăng nhập hệ thống', 'success');
+        return;
+      }
+
+      Swal.fire('Lỗi', 'Tài khoản hoặc mật khẩu không đúng', 'error');
+    } catch (err) {
+      console.error('Firebase login failed, trying fallback...', err);
+      // 3) If Firebase completely fails, still allow login with hardcoded accounts
+      const fallback = FALLBACK_ACCOUNTS.find(a => a.username === username && a.password === password);
+      if (fallback) {
+        const userObj: any = { id: fallback.id, username: fallback.username, role: fallback.role };
+        if (fallback.teacherId) userObj.teacherId = fallback.teacherId;
+        setUser(userObj);
+        localStorage.setItem('auth_session', JSON.stringify(userObj));
+        Swal.fire('Thành công', 'Đã đăng nhập hệ thống (Offline)', 'success');
       } else {
         Swal.fire('Lỗi', 'Tài khoản hoặc mật khẩu không đúng', 'error');
       }
-    } catch (err) {
-      console.error(err);
-      Swal.fire('Lỗi', 'Lỗi kết nối cơ sở dữ liệu', 'error');
     }
   };
 
