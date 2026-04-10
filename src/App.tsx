@@ -4678,7 +4678,7 @@ export default function App() {
       // Đếm NGÀY NGHỈ / BÙ TỪ BÀI HỌC THỰC TẾ tháng trước
       const prevMonthLessons = data.lessons.filter(l => 
         dayjs(l.date).isSame(prevMonth, 'month') && 
-        student.classes.includes(l.classId) && 
+        l.attendance?.some(a => a.studentId === studentId) && 
         l.status !== 'cancel'
       );
 
@@ -4871,8 +4871,76 @@ export default function App() {
                         <td className="px-6 py-4 text-sm font-bold text-slate-800">
                           {formatCurrency(bill.totalAmount)}
                         </td>
-                        <td className="px-6 py-4 text-sm font-bold text-success">
-                          {formatCurrency(bill.amountPaid)}
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-bold text-success">{formatCurrency(bill.amountPaid)}</span>
+                            {bill.totalAmount - bill.amountPaid > 0 && (
+                              <button 
+                                 onClick={() => {
+                                   const remaining = Math.max(0, bill.totalAmount - bill.amountPaid);
+                                   Swal.fire({
+                                     title: 'Thu học phí',
+                                     html: `
+                                       <div class="text-sm space-y-2 text-left mb-4">
+                                         <p>Học viên: <strong class="text-slate-800">${student.name}</strong></p>
+                                         <p>Cần thu thêm: <strong class="text-error">${formatCurrency(remaining)}</strong></p>
+                                       </div>
+                                       <input id="swal-payment-input" type="number" class="w-full px-3 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-primary/50" placeholder="Nhập số tiền nộp đợt này..." value="${remaining}">
+                                     `,
+                                     showCancelButton: true,
+                                     confirmButtonText: 'Thu tiền',
+                                     cancelButtonText: 'Hủy',
+                                     preConfirm: () => {
+                                       const val = (document.getElementById('swal-payment-input') as HTMLInputElement).value;
+                                       const num = Number(val);
+                                       if (!val || isNaN(num) || num <= 0) {
+                                         Swal.showValidationMessage('Vui lòng nhập số tiền hợp lệ lớn hơn 0');
+                                         return false;
+                                       }
+                                       return num;
+                                     }
+                                   }).then((result) => {
+                                     if (result.isConfirmed) {
+                                        const amount = result.value;
+                                        const newTotalPaid = bill.amountPaid + amount;
+                                        
+                                        handleUpdateBill(bill.id, { 
+                                           amountPaid: newTotalPaid,
+                                        });
+                                        
+                                        const newTxn: Transaction = {
+                                          id: `txn-${Date.now()}`,
+                                          type: 'income',
+                                          amount: amount,
+                                          category: 'Học phí',
+                                          description: `Thu học phí tháng ${monthStr} - ${student.name}`,
+                                          date: dayjs().format('YYYY-MM-DD'),
+                                          relatedId: student.id
+                                        };
+                                        updateData(prev => ({
+                                          ...prev,
+                                          transactions: [...(prev.transactions || []), newTxn]
+                                        }));
+                                        
+                                        Swal.fire({
+                                          title: 'Thành công',
+                                          text: `Đã ghi nhận thu ${formatCurrency(amount)}`,
+                                          icon: 'success',
+                                          toast: true,
+                                          position: 'top-end',
+                                          showConfirmButton: false,
+                                          timer: 3000
+                                        });
+                                     }
+                                   });
+                                 }}
+                                 className="px-2 py-1 text-[10px] bg-success text-white rounded hover:bg-success/90 font-bold uppercase shadow-sm transition-all flex items-center gap-1"
+                                 title="Thu tiền mặt / Chuyển khoản"
+                              >
+                                 <Plus size={12} /> Nộp tiền
+                              </button>
+                            )}
+                          </div>
                         </td>
                         <td className="px-6 py-4 text-sm font-bold text-error">
                           {formatCurrency(Math.max(0, bill.totalAmount - bill.amountPaid))}
@@ -4894,72 +4962,6 @@ export default function App() {
                           >
                             <Download size={16} />
                           </button>
-                          {bill.totalAmount - bill.amountPaid > 0 && (
-                            <button 
-                               onClick={() => {
-                                 const remaining = Math.max(0, bill.totalAmount - bill.amountPaid);
-                                 Swal.fire({
-                                   title: 'Thu học phí',
-                                   html: `
-                                     <div class="text-sm space-y-2 text-left mb-4">
-                                       <p>Học viên: <strong class="text-slate-800">${student.name}</strong></p>
-                                       <p>Cần thu thêm: <strong class="text-error">${formatCurrency(remaining)}</strong></p>
-                                     </div>
-                                     <input id="swal-payment-input" type="number" class="w-full px-3 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-primary/50" placeholder="Nhập số tiền nộp đợt này..." value="${remaining}">
-                                   `,
-                                   showCancelButton: true,
-                                   confirmButtonText: 'Thu tiền',
-                                   cancelButtonText: 'Hủy',
-                                   preConfirm: () => {
-                                     const val = (document.getElementById('swal-payment-input') as HTMLInputElement).value;
-                                     const num = Number(val);
-                                     if (!val || isNaN(num) || num <= 0) {
-                                       Swal.showValidationMessage('Vui lòng nhập số tiền hợp lệ lớn hơn 0');
-                                       return false;
-                                     }
-                                     return num;
-                                   }
-                                 }).then((result) => {
-                                   if (result.isConfirmed) {
-                                      const amount = result.value;
-                                      const newTotalPaid = bill.amountPaid + amount;
-                                      
-                                      handleUpdateBill(bill.id, { 
-                                         amountPaid: newTotalPaid,
-                                      });
-                                      
-                                      const newTxn: Transaction = {
-                                        id: `txn-${Date.now()}`,
-                                        type: 'income',
-                                        amount: amount,
-                                        category: 'Học phí',
-                                        description: `Thu học phí tháng ${monthStr} - ${student.name}`,
-                                        date: dayjs().format('YYYY-MM-DD'),
-                                        relatedId: student.id
-                                      };
-                                      updateData(prev => ({
-                                        ...prev,
-                                        transactions: [...(prev.transactions || []), newTxn]
-                                      }));
-                                      
-                                      Swal.fire({
-                                        title: 'Thành công',
-                                        text: `Đã ghi nhận thu ${formatCurrency(amount)}`,
-                                        icon: 'success',
-                                        toast: true,
-                                        position: 'top-end',
-                                        showConfirmButton: false,
-                                        timer: 3000
-                                      });
-                                   }
-                                 });
-                               }}
-                               className="p-2 text-success hover:bg-success/10 rounded-lg transition-colors"
-                               title="Thu tiền đợt này"
-                            >
-                               <Wallet size={16} />
-                            </button>
-                          )}
                         </td>
                       </tr>
                     );
