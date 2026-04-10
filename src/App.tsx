@@ -1956,6 +1956,8 @@ export default function App() {
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [isTeacherModalOpen, setIsTeacherModalOpen] = useState(false);
   const [editingTeacher, setEditingTeacher] = useState<Teacher | null>(null);
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [profileForm, setProfileForm] = useState({ email: '', phone: '' });
   const [isClassModalOpen, setIsClassModalOpen] = useState(false);
   const [editingClass, setEditingClass] = useState<Class | null>(null);
   const [studentSearch, setStudentSearch] = useState('');
@@ -2319,7 +2321,7 @@ export default function App() {
         date: dayjs().format('YYYY-MM-DD')
       };
 
-      setData({ ...data, transactions: [newTxn, ...data.transactions] });
+      updateData(prev => ({ ...prev, transactions: [newTxn, ...prev.transactions] }));
       Swal.fire('Thành công', `Đã thêm giao dịch: ${category}`, 'success');
     }
   };
@@ -3351,7 +3353,7 @@ export default function App() {
                             confirmButtonColor: '#4f46e5',
                           }).then((result) => {
                             if (result.isConfirmed) {
-                              setData(prev => ({
+                              updateData(prev => ({
                                 ...prev,
                                 classes: prev.classes.map(c => c.id === cls.id ? { ...c, generalNotes: result.value } : c)
                               }));
@@ -4007,43 +4009,6 @@ export default function App() {
 
     const seniorityMonths = teacher.startDate ? dayjs().diff(dayjs(teacher.startDate), 'month') : 0;
 
-    const handleEditProfile = async () => {
-      const { value: formValues } = await Swal.fire({
-        title: 'Cập nhật thông tin',
-        html: `
-          <div class="space-y-4 pt-4">
-            <div class="text-left">
-              <label class="text-xs font-bold text-slate-500">Email</label>
-              <input id="swal-input-email" type="email" class="w-full px-4 py-2 border border-slate-200 rounded-xl" value="${teacher.email || ''}">
-            </div>
-            <div class="text-left">
-              <label class="text-xs font-bold text-slate-500">Số điện thoại</label>
-              <input id="swal-input-phone" type="tel" class="w-full px-4 py-2 border border-slate-200 rounded-xl" value="${teacher.phone || ''}">
-            </div>
-          </div>
-        `,
-        focusConfirm: false,
-        showCancelButton: true,
-        confirmButtonText: 'Lưu thay đổi',
-        cancelButtonText: 'Hủy bỏ',
-        customClass: { popup: 'rounded-3xl' },
-        preConfirm: () => {
-          return {
-            email: (document.getElementById('swal-input-email') as HTMLInputElement).value,
-            phone: (document.getElementById('swal-input-phone') as HTMLInputElement).value
-          }
-        }
-      });
-
-      if (formValues) {
-        updateData(prev => ({
-          ...prev,
-          teachers: prev.teachers.map(t => t.id === teacher.id ? { ...t, email: formValues.email, phone: formValues.phone } : t)
-        }));
-        Swal.fire('Thành công', 'Thông tin đã được cập nhật', 'success');
-      }
-    };
-
     return (
       <div className="space-y-6">
         <h2 className="text-2xl font-bold">Hồ sơ cá nhân</h2>
@@ -4070,68 +4035,159 @@ export default function App() {
               <div className="pt-6 mt-6 border-t border-slate-100 space-y-3">
                 <div className="flex items-center justify-between mb-2">
                   <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Thông tin liên hệ</h4>
-                  <button onClick={handleEditProfile} className="text-xs font-bold text-primary hover:underline flex items-center gap-1 bg-primary/10 px-2 py-1 rounded-lg">
-                    <Settings size={12}/> Chỉnh sửa
-                  </button>
+                  {!isEditingProfile ? (
+                    <button 
+                      onClick={() => {
+                        setProfileForm({ email: teacher.email || '', phone: teacher.phone || '' });
+                        setIsEditingProfile(true);
+                      }} 
+                      className="text-xs font-bold text-primary hover:underline flex items-center gap-1 bg-primary/10 px-2 py-1 rounded-lg transition-colors"
+                    >
+                      <Settings size={12}/> Chỉnh sửa
+                    </button>
+                  ) : (
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={() => setIsEditingProfile(false)} 
+                        className="text-xs font-bold text-slate-500 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded-lg transition-colors"
+                      >
+                        Hủy
+                      </button>
+                      <button 
+                        onClick={() => {
+                          updateData(prev => ({
+                            ...prev,
+                            teachers: prev.teachers.map(t => t.id === teacher.id ? { ...t, email: profileForm.email, phone: profileForm.phone } : t)
+                          }));
+                          setIsEditingProfile(false);
+                          Swal.fire({
+                            title: 'Thành công',
+                            text: 'Cập nhật thông tin liên hệ thành công',
+                            icon: 'success',
+                            toast: true,
+                            position: 'top-end',
+                            showConfirmButton: false,
+                            timer: 3000
+                          });
+                        }} 
+                        className="text-xs font-bold text-white bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20 px-3 py-1 rounded-lg transition-all"
+                      >
+                        Lưu
+                      </button>
+                    </div>
+                  )}
                 </div>
-                <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl">
-                  <Mail size={16} className="text-slate-400" />
-                  <span className="text-sm font-medium text-slate-700">{teacher.email || 'Chưa cập nhật'}</span>
-                </div>
-                <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl">
-                  <Phone size={16} className="text-slate-400" />
-                  <span className="text-sm font-medium text-slate-700">{teacher.phone || 'Chưa cập nhật'}</span>
-                </div>
+
+                {!isEditingProfile ? (
+                  <>
+                    <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl transition-all">
+                      <Mail size={16} className="text-slate-400" />
+                      <span className="text-sm font-medium text-slate-700">{teacher.email || 'Chưa cập nhật'}</span>
+                    </div>
+                    <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl transition-all">
+                      <Phone size={16} className="text-slate-400" />
+                      <span className="text-sm font-medium text-slate-700">{teacher.phone || 'Chưa cập nhật'}</span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3 p-2 bg-white rounded-xl border-2 border-primary/20 focus-within:border-primary shadow-sm transition-all text-sm">
+                      <Mail size={16} className="text-primary ml-1" />
+                      <input 
+                        type="email" 
+                        value={profileForm.email} 
+                        onChange={(e) => setProfileForm(prev => ({ ...prev, email: e.target.value }))}
+                        placeholder="Email liên hệ..."
+                        className="w-full bg-transparent font-medium text-slate-700 outline-none placeholder:font-normal"
+                      />
+                    </div>
+                    <div className="flex items-center gap-3 p-2 bg-white rounded-xl border-2 border-primary/20 focus-within:border-primary shadow-sm transition-all text-sm">
+                      <Phone size={16} className="text-primary ml-1" />
+                      <input 
+                        type="tel" 
+                        value={profileForm.phone} 
+                        onChange={(e) => setProfileForm(prev => ({ ...prev, phone: e.target.value }))}
+                        placeholder="Số điện thoại..."
+                        className="w-full bg-transparent font-medium text-slate-700 outline-none placeholder:font-normal"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
 
           <div className="lg:col-span-2 space-y-6">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <StatCard title="Giờ dạy tháng này" value={`${totalHoursThisMonth.toFixed(1)}h`} icon={Clock} color="bg-secondary" />
-              <StatCard title="KPI Hiện tại" value={`${teacher.kpi}%`} icon={TrendingUp} color="bg-success" />
+              
+              <div className="glass-card p-6 flex flex-col justify-between">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <p className="text-sm text-slate-500 font-medium">KPI Hiện tại</p>
+                    <h3 className="text-2xl font-bold mt-1 text-slate-800">{teacher.kpi}%</h3>
+                  </div>
+                  <div className="p-4 rounded-2xl bg-success">
+                    <TrendingUp size={24} className="text-white" />
+                  </div>
+                </div>
+                <div>
+                  <div className="w-full bg-slate-100 rounded-full h-2 mb-1.5 overflow-hidden">
+                    <div 
+                      className={cn("h-full rounded-full transition-all duration-1000", teacher.kpi >= 100 ? "bg-success" : teacher.kpi >= 80 ? "bg-warning" : "bg-error")} 
+                      style={{ width: `${Math.min(teacher.kpi || 0, 100)}%` }}
+                    ></div>
+                  </div>
+                  <p className="text-[10px] text-slate-500 text-right font-medium">Mục tiêu: 100%</p>
+                </div>
+              </div>
+
               <StatCard title="Phụ cấp tháng" value={`+${formatCurrency(currentAdj.allowance)}`} icon={Plus} color="bg-primary" />
               <StatCard title="Khấu trừ tháng" value={`-${formatCurrency(currentAdj.penalty)}`} icon={TrendingDown} color="bg-error" />
             </div>
 
             <div className="glass-card p-6">
-              <div className="flex items-center justify-between mb-6">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
                 <div>
                   <h3 className="text-lg font-bold text-slate-800">Lương dự kiến ({currentMonthStr})</h3>
                   <p className="text-sm text-slate-500">Tính theo giờ dạy thực tế của tháng hiện tại</p>
                 </div>
-                <div className="text-right flex flex-col items-end">
+                <div className="md:text-right flex flex-col md:items-end bg-slate-50 p-4 rounded-2xl border border-slate-100">
                   <p className="text-3xl font-bold text-primary">{formatCurrency(expectedSalary)}</p>
                   {currentAdj.paid ? 
-                    <span className="inline-flex items-center gap-1 text-[10px] bg-success/10 text-success px-2 py-1 rounded-full font-bold uppercase mt-2"><CheckCircle2 size={12}/> Đã thanh toán</span> : 
-                    <span className="inline-flex items-center gap-1 text-[10px] bg-warning/10 text-warning px-2 py-1 rounded-full font-bold uppercase mt-2"><Clock size={12}/> Chờ thanh toán</span>
+                    <span className="inline-flex items-center gap-1 text-[10px] bg-success/10 text-success px-2 py-1 rounded-full font-bold uppercase mt-2 border border-success/20"><CheckCircle2 size={12}/> Đã thanh toán</span> : 
+                    <span className="inline-flex items-center gap-1 text-[10px] bg-warning/10 text-warning px-2 py-1 rounded-full font-bold uppercase mt-2 border border-warning/20"><Clock size={12}/> Chờ thanh toán</span>
                   }
                 </div>
               </div>
               
               <div className="space-y-4">
-                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Chi tiết giờ dạy các lớp</h4>
-                <div className="overflow-x-auto">
+                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+                  <BookOpen size={14}/> Chi tiết giờ dạy các lớp
+                </h4>
+                <div className="overflow-x-auto rounded-2xl border border-slate-100">
                   <table className="w-full text-left">
-                    <thead className="bg-slate-50 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    <thead className="bg-slate-50 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
                       <tr>
-                        <th className="p-3 rounded-l-xl">Lớp học</th>
-                        <th className="p-3">Số buổi dạy</th>
-                        <th className="p-3 rounded-r-xl">Tổng giờ</th>
+                        <th className="p-4">Lớp học</th>
+                        <th className="p-4">Số buổi dạy</th>
+                        <th className="p-4">Tổng giờ</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-50">
+                    <tbody className="divide-y divide-slate-100 bg-white">
                       {Object.keys(classBreakdown).length > 0 ? Object.keys(classBreakdown).map(classId => {
                         const clsName = data.classes.find(c => c.id === classId)?.name || 'Unknown';
                         return (
-                          <tr key={classId} className="text-sm hover:bg-slate-50/50 transition-colors">
-                            <td className="p-3 font-bold text-slate-700">{clsName}</td>
-                            <td className="p-3 text-slate-600 font-medium">{classBreakdown[classId].sessions} buổi</td>
-                            <td className="p-3 text-primary font-bold">{classBreakdown[classId].hours.toFixed(1)}h</td>
+                          <tr key={classId} className="text-sm hover:bg-slate-50 transition-colors">
+                            <td className="p-4 font-bold text-slate-700">{clsName}</td>
+                            <td className="p-4 text-slate-600 font-medium">
+                              <span className="px-2 py-1 bg-slate-100 rounded-lg text-xs">{classBreakdown[classId].sessions} buổi</span>
+                            </td>
+                            <td className="p-4 text-primary font-bold">{classBreakdown[classId].hours.toFixed(1)}h</td>
                           </tr>
                         );
                       }) : (
-                        <tr><td colSpan={3} className="p-4 text-center text-slate-400 italic">Chưa có dữ liệu dạy tháng này</td></tr>
+                        <tr><td colSpan={3} className="p-8 text-center text-slate-400 italic">Chưa có dữ liệu dạy tháng này</td></tr>
                       )}
                     </tbody>
                   </table>
@@ -4140,34 +4196,47 @@ export default function App() {
             </div>
 
             <div className="glass-card p-6">
-              <h3 className="text-lg font-bold text-slate-800 mb-6">Lịch sử nhận lương</h3>
+              <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
+                <Wallet size={20} className="text-primary"/> Lịch sử nhận lương
+              </h3>
               <div className="space-y-4">
                 {Object.keys(teacher.salaryAdjustments || {}).filter(k => teacher.salaryAdjustments![k].paid).sort().reverse().map(month => {
                   const adj = teacher.salaryAdjustments![month];
                   return (
-                    <div key={month} className="flex flex-col md:flex-row md:items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 gap-4">
-                      <div>
-                        <h4 className="font-bold text-slate-700">Lương Tháng {month}</h4>
-                        {adj.notes && <p className="text-xs text-slate-500 mt-1 italic max-w-md">{adj.notes}</p>}
+                    <div key={month} className="flex flex-col md:flex-row md:items-center justify-between p-5 bg-white rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow gap-4 relative overflow-hidden">
+                      <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-success"></div>
+                      <div className="pl-3">
+                        <div className="flex items-center gap-3 mb-2">
+                          <h4 className="font-bold text-slate-800 text-lg">Tháng {month}</h4>
+                          <span className="px-2 py-0.5 bg-success/10 text-success text-[10px] font-bold uppercase rounded-full flex items-center gap-1 border border-success/20">
+                            <CheckCircle2 size={12}/> Đã thanh toán
+                          </span>
+                        </div>
+                        {adj.notes ? (
+                          <p className="text-xs text-slate-600 bg-slate-50 p-2.5 rounded-xl border border-slate-100 inline-block">
+                            {adj.notes.split('|').map((note, i) => note ? <span key={i} className="mr-3 last:mr-0 inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-slate-300"></span> {note}</span> : null)}
+                          </p>
+                        ) : null}
                       </div>
-                      <div className="flex gap-4 md:gap-6 items-center">
+                      <div className="flex gap-6 items-center bg-slate-50 px-5 py-3 rounded-xl border border-slate-100">
                          <div>
-                            <p className="text-[10px] font-bold text-slate-400 uppercase text-right">Phụ cấp</p>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase text-right mb-1">Phụ cấp</p>
                             <p className="text-sm font-bold text-success text-right">+{formatCurrency(adj.allowance)}</p>
                          </div>
+                         <div className="w-px h-8 bg-slate-200"></div>
                          <div>
-                            <p className="text-[10px] font-bold text-slate-400 uppercase text-right">Khấu trừ</p>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase text-right mb-1">Khấu trừ</p>
                             <p className="text-sm font-bold text-error text-right">-{formatCurrency(adj.penalty)}</p>
-                         </div>
-                         <div className="w-8 h-8 rounded-full bg-success/10 flex items-center justify-center text-success ml-2 shadow-sm border border-success/20" title="Đã thanh toán">
-                            <CheckCircle2 size={16} />
                          </div>
                       </div>
                     </div>
                   );
                 })}
                 {Object.keys(teacher.salaryAdjustments || {}).filter(k => teacher.salaryAdjustments![k].paid).length === 0 && (
-                  <p className="text-center text-slate-400 italic py-6 bg-slate-50 rounded-xl border border-slate-100">Chưa có lịch sử nhận lương nào.</p>
+                  <div className="py-10 text-center text-slate-400 border-2 border-dashed border-slate-100 rounded-2xl bg-slate-50/50">
+                    <Wallet size={32} className="mx-auto mb-2 opacity-20" />
+                    <p className="font-medium text-sm">Chưa có lịch sử nhận lương nào</p>
+                  </div>
                 )}
               </div>
             </div>
@@ -4870,39 +4939,46 @@ export default function App() {
                           <div className="flex flex-col gap-1">
                             <input 
                               type="number" 
-                              value={adj.allowance}
-                              onChange={(e) => {
+                              key={`allowance-${teacher.id}-${monthKey}-${adj.allowance}`}
+                              defaultValue={adj.allowance}
+                              onBlur={(e) => {
                                 const val = Number(e.target.value);
-                                setData(prev => ({
-                                  ...prev,
-                                  teachers: prev.teachers.map(t => t.id === teacher.id ? {
-                                    ...t,
-                                    salaryAdjustments: {
-                                      ...(t.salaryAdjustments || {}),
-                                      [monthKey]: { ...adj, allowance: val }
-                                    }
-                                  } : t)
-                                }));
+                                if (val !== adj.allowance) {
+                                  updateData(prev => ({
+                                    ...prev,
+                                    teachers: prev.teachers.map(t => t.id === teacher.id ? {
+                                      ...t,
+                                      salaryAdjustments: {
+                                        ...(t.salaryAdjustments || {}),
+                                        [monthKey]: { ...adj, allowance: val }
+                                      }
+                                    } : t)
+                                  }));
+                                }
                               }}
                               className="w-20 px-2 py-1 border border-slate-200 rounded text-sm outline-none focus:ring-1 focus:ring-primary"
                             />
                             <input 
                               placeholder="Ghi chú"
                               type="text" 
-                              value={adj.notes?.split('|')[0] || ''}
-                              onChange={(e) => {
+                              key={`note-allowance-${teacher.id}-${monthKey}-${adj.notes?.split('|')[0] || ''}`}
+                              defaultValue={adj.notes?.split('|')[0] || ''}
+                              onBlur={(e) => {
                                 const val = e.target.value;
-                                const penaltyNote = adj.notes?.split('|')[1] || '';
-                                setData(prev => ({
-                                  ...prev,
-                                  teachers: prev.teachers.map(t => t.id === teacher.id ? {
-                                    ...t,
-                                    salaryAdjustments: {
-                                      ...(t.salaryAdjustments || {}),
-                                      [monthKey]: { ...adj, notes: `${val}|${penaltyNote}` }
-                                    }
-                                  } : t)
-                                }));
+                                const currentNote = adj.notes?.split('|')[0] || '';
+                                if (val !== currentNote) {
+                                  const penaltyNote = adj.notes?.split('|')[1] || '';
+                                  updateData(prev => ({
+                                    ...prev,
+                                    teachers: prev.teachers.map(t => t.id === teacher.id ? {
+                                      ...t,
+                                      salaryAdjustments: {
+                                        ...(t.salaryAdjustments || {}),
+                                        [monthKey]: { ...adj, notes: `${val}|${penaltyNote}` }
+                                      }
+                                    } : t)
+                                  }));
+                                }
                               }}
                               className="w-20 px-2 py-0.5 border border-slate-100 rounded text-[10px] outline-none"
                             />
@@ -4912,39 +4988,46 @@ export default function App() {
                           <div className="flex flex-col gap-1">
                             <input 
                               type="number" 
-                              value={adj.penalty}
-                              onChange={(e) => {
+                              key={`penalty-${teacher.id}-${monthKey}-${adj.penalty}`}
+                              defaultValue={adj.penalty}
+                              onBlur={(e) => {
                                 const val = Number(e.target.value);
-                                setData(prev => ({
-                                  ...prev,
-                                  teachers: prev.teachers.map(t => t.id === teacher.id ? {
-                                    ...t,
-                                    salaryAdjustments: {
-                                      ...(t.salaryAdjustments || {}),
-                                      [monthKey]: { ...adj, penalty: val }
-                                    }
-                                  } : t)
-                                }));
+                                if (val !== adj.penalty) {
+                                  updateData(prev => ({
+                                    ...prev,
+                                    teachers: prev.teachers.map(t => t.id === teacher.id ? {
+                                      ...t,
+                                      salaryAdjustments: {
+                                        ...(t.salaryAdjustments || {}),
+                                        [monthKey]: { ...adj, penalty: val }
+                                      }
+                                    } : t)
+                                  }));
+                                }
                               }}
                               className="w-20 px-2 py-1 border border-slate-200 rounded text-sm outline-none focus:ring-1 focus:ring-primary"
                             />
                             <input 
                               placeholder="Ghi chú"
                               type="text" 
-                              value={adj.notes?.split('|')[1] || ''}
-                              onChange={(e) => {
+                              key={`note-penalty-${teacher.id}-${monthKey}-${adj.notes?.split('|')[1] || ''}`}
+                              defaultValue={adj.notes?.split('|')[1] || ''}
+                              onBlur={(e) => {
                                 const val = e.target.value;
-                                const allowanceNote = adj.notes?.split('|')[0] || '';
-                                setData(prev => ({
-                                  ...prev,
-                                  teachers: prev.teachers.map(t => t.id === teacher.id ? {
-                                    ...t,
-                                    salaryAdjustments: {
-                                      ...(t.salaryAdjustments || {}),
-                                      [monthKey]: { ...adj, notes: `${allowanceNote}|${val}` }
-                                    }
-                                  } : t)
-                                }));
+                                const currentNote = adj.notes?.split('|')[1] || '';
+                                if (val !== currentNote) {
+                                  const allowanceNote = adj.notes?.split('|')[0] || '';
+                                  updateData(prev => ({
+                                    ...prev,
+                                    teachers: prev.teachers.map(t => t.id === teacher.id ? {
+                                      ...t,
+                                      salaryAdjustments: {
+                                        ...(t.salaryAdjustments || {}),
+                                        [monthKey]: { ...adj, notes: `${allowanceNote}|${val}` }
+                                      }
+                                    } : t)
+                                  }));
+                                }
                               }}
                               className="w-20 px-2 py-0.5 border border-slate-100 rounded text-[10px] outline-none"
                             />
@@ -4971,7 +5054,7 @@ export default function App() {
                                   date: dayjs().format('YYYY-MM-DD'),
                                   relatedId: teacher.id
                                 };
-                                setData(prev => ({
+                                updateData(prev => ({
                                   ...prev,
                                   teachers: prev.teachers.map(t => t.id === teacher.id ? {
                                     ...t,
@@ -5049,7 +5132,7 @@ export default function App() {
                         <td className="px-6 py-4">
                           <button 
                             onClick={() => {
-                              setData(prev => ({
+                              updateData(prev => ({
                                 ...prev,
                                 transactions: prev.transactions.filter(t => t.id !== txn.id)
                               }));
@@ -5185,7 +5268,7 @@ export default function App() {
                             <td className="px-6 py-4">
                               <button 
                                 onClick={() => {
-                                  setData(prev => ({
+                                  updateData(prev => ({
                                     ...prev,
                                     transactions: prev.transactions.filter(t => t.id !== txn.id)
                                   }));
