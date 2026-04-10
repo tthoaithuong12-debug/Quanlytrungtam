@@ -4624,7 +4624,7 @@ export default function App() {
         return sum + fee;
       }, 0);
 
-      // Calculate sessions in CURRENT month
+      // Tính tổng số buổi DỰ KIẾN tháng này (từ schedule)
       let totalSessions = 0;
       const daysInMonth = selectedMonth.daysInMonth();
       for (let i = 1; i <= daysInMonth; i++) {
@@ -4633,49 +4633,68 @@ export default function App() {
         totalSessions += sessions.filter(s => student.classes.includes(s.id) && s.status !== 'cancel').length;
       }
 
-      // Calculate deductions from previous month
-      let deductions = 0;
-      const prevMonthSessions = [];
-      const daysInPrevMonth = prevMonth.daysInMonth();
-      for (let i = 1; i <= daysInPrevMonth; i++) {
-        const date = prevMonth.date(i);
-        const sessions = getSessionsForDate(date, data.classes, data.lessons);
-        prevMonthSessions.push(...sessions.filter(s => student.classes.includes(s.id)).map(s => ({ ...s, date })));
+      // Đếm NGÀY NGHỈ / BÙ TỪ BÀI HỌC THỰC TẾ tháng trước
+      const prevMonthLessons = data.lessons.filter(l => 
+        dayjs(l.date).isSame(prevMonth, 'month') && 
+        student.classes.includes(l.classId) && 
+        l.status !== 'cancel'
+      );
+
+      const absentSessions = prevMonthLessons.filter(l => {
+        const att = l.attendance.find(a => a.studentId === studentId);
+        return att?.status === 'absent';
+      }).length;
+
+      const makeupSessions = prevMonthLessons.filter(l => {
+        const att = l.attendance.find(a => a.studentId === studentId);
+        return att?.status === 'make-up';
+      }).length;
+
+      // Tính khấu trừ
+      const sessionsPerMonth = 8;
+      const deductions = Math.max(0, (absentSessions - makeupSessions) * (totalTuition / sessionsPerMonth));
+
+      // Tính CÔNG NỢ từ các tháng cũ
+      const pastBills = (data.monthlyBills || []).filter(b => b.studentId === studentId && b.month < monthKey);
+      const previousDebt = pastBills.reduce((sum, b) => {
+        const amountUnpaid = b.totalAmount - (b.amountPaid || 0);
+        return sum + (amountUnpaid > 0 ? amountUnpaid : 0);
+      }, 0);
+
+      // Cập nhật bill nếu đã tồn tại (giữ nguyên amountPaid)
+      const existingBill = (data.monthlyBills || []).find(b => b.studentId === studentId && b.month === monthKey);
+      const amountPaid = existingBill ? existingBill.amountPaid : 0;
+      const totalAmount = totalTuition - deductions + previousDebt;
+      
+      let status: MonthlyBill['status'] = 'billed';
+      if (amountPaid > 0) {
+         status = amountPaid >= totalAmount ? 'paid' : 'partial';
       }
 
-      const absentSessions = prevMonthSessions.filter(s => {
-        const lesson = data.lessons.find(l => l.classId === s.id && dayjs(l.date).isSame(s.date, 'day'));
-        const att = lesson?.attendance.find(a => a.studentId === studentId);
-        return att?.status === 'absent';
-      });
-
-      const makeupSessions = prevMonthSessions.filter(s => {
-        const lesson = data.lessons.find(l => l.classId === s.id && dayjs(l.date).isSame(s.date, 'day'));
-        const att = lesson?.attendance.find(a => a.studentId === studentId);
-        return att?.status === 'make-up';
-      });
-
-      // Simple deduction logic: tuition / 8 sessions per month * (absent - makeup)
-      const sessionsPerMonth = 8; 
-      deductions = Math.max(0, (absentSessions.length - makeupSessions.length) * (totalTuition / sessionsPerMonth));
-
       const newBill: MonthlyBill = {
-        id: `bill-${Date.now()}-${studentId}`,
+        id: existingBill ? existingBill.id : `bill-${Date.now()}-${studentId}`,
         studentId,
         month: monthKey,
-        status: 'billed',
-        amountPaid: 0,
-        totalAmount: totalTuition - deductions,
+        status,
+        amountPaid,
+        totalAmount,
         deductions,
         totalSessions,
-        absentSessions: absentSessions.length,
-        makeupSessions: makeupSessions.length,
+        absentSessions,
+        makeupSessions,
+        previousDebt,
       };
 
-      setData(prev => ({
-        ...prev,
-        monthlyBills: [...(prev.monthlyBills || []), newBill]
-      }));
+      updateData(prev => {
+        const bills = [...(prev.monthlyBills || [])];
+        const idx = bills.findIndex(b => b.id === newBill.id);
+        if (idx !== -1) {
+          bills[idx] = newBill;
+        } else {
+          bills.push(newBill);
+        }
+        return { ...prev, monthlyBills: bills };
+      });
     };
 
     const renderTuitionTab = () => {
@@ -4793,10 +4812,15 @@ export default function App() {
                           }, 0))}
                         </td>
                         <td className="px-6 py-4 text-sm font-bold text-error">
-                          -{formatCurrency(bill.deductions)}
+                          <div className="flex flex-col gap-0.5">
+                            <span>-{formatCurrency(bill.deductions)}</span>
+                            {bill.previousDebt && bill.previousDebt > 0 ? (
+                              <span className="text-[10px] text-warning truncate" title="Nợ cũ:">+Nợ cũ: {formatCurrency(bill.previousDebt)}</span>
+                            ) : null}
+                          </div>
                         </td>
                         <td className="px-6 py-4 text-sm font-bold text-primary">
-                          {formatCurrency(bill.totalAmount)}
+                          {formatCurrency(Math.max(0, bill.totalAmount - bill.amountPaid))}
                         </td>
                         <td className="px-6 py-4">
                           <input 
@@ -4920,19 +4944,34 @@ export default function App() {
                     let totalHours = 0;
                     let teachingDays = new Set();
                     
-                    for (let i = 1; i <= daysInMonth; i++) {
-                      const date = selectedMonth.date(i);
-                      const sessions = getSessionsForDate(date, data.classes, data.lessons);
-                      
-                      sessions.forEach(session => {
-                        if (session.status !== 'cancel' && (session.teacherId === teacher.id || session.assistantId === teacher.id)) {
-                          const start = dayjs(`2000-01-01 ${session.startTime}`);
-                          const end = dayjs(`2000-01-01 ${session.endTime}`);
-                          totalHours += end.diff(start, 'hour', true);
-                          teachingDays.add(date.format('YYYY-MM-DD'));
+                    const actualLessons = data.lessons.filter(l => 
+                      dayjs(l.date).isSame(selectedMonth, 'month') && 
+                      (l.teacherId === teacher.id || l.assistantId === teacher.id) && 
+                      l.status !== 'cancel'
+                    );
+
+                    actualLessons.forEach(session => {
+                      let hours = 0;
+                      if (session.startTime && session.endTime) {
+                        const start = dayjs(`2000-01-01 ${session.startTime}`);
+                        const end = dayjs(`2000-01-01 ${session.endTime}`);
+                        hours = end.diff(start, 'hour', true);
+                      } else {
+                        const cls = data.classes.find(c => c.id === session.classId);
+                        if (cls && cls.schedule) {
+                          const dayOfWeek = dayjs(session.date).day();
+                          const sc = cls.schedule.find(s => s.day === dayOfWeek) || cls.schedule[0];
+                          if (sc) {
+                            const start = dayjs(`2000-01-01 ${sc.startTime}`);
+                            const end = dayjs(`2000-01-01 ${sc.endTime}`);
+                            hours = end.diff(start, 'hour', true);
+                          }
                         }
-                      });
-                    }
+                      }
+                      
+                      totalHours += hours;
+                      teachingDays.add(session.date);
+                    });
 
                     const adj = teacher.salaryAdjustments?.[monthKey] || { allowance: 0, penalty: 0, notes: '' };
                     const basePay = totalHours * (teacher.hourlyRate || 0);
