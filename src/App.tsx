@@ -2555,11 +2555,17 @@ export default function App() {
                   </div>
 
                   <div className="space-y-1">
-                    {['07:30', '09:30', '13:00', '15:00', '17:00', '19:00', '20:30'].map(slot => (
-                      <div key={slot} className="grid grid-cols-8 border-b border-slate-50 min-h-[60px]">
-                        <div className="flex items-center text-[10px] font-bold text-slate-400">{slot}</div>
-                        {weekDays.map((date, i) => {
-                          const allSessions = getSessionsForDate(date, data.classes, data.lessons).filter(s => s.startTime === slot);
+                    {(() => {
+                      const allWeekSessions = weekDays.flatMap(date => getSessionsForDate(date, data.classes, data.lessons));
+                      const defaultSlots = ['07:30', '09:30', '13:00', '15:00', '17:00', '19:00', '20:30'];
+                      const activeSlots = allWeekSessions.map(s => s.startTime).filter(Boolean);
+                      const uniqueTimeSlots = Array.from(new Set([...defaultSlots, ...activeSlots])).sort();
+                      
+                      return uniqueTimeSlots.map(slot => (
+                        <div key={slot} className="grid grid-cols-8 border-b border-slate-50 min-h-[60px]">
+                          <div className="flex items-center text-[10px] font-bold text-slate-400">{slot}</div>
+                          {weekDays.map((date, i) => {
+                            const allSessions = getSessionsForDate(date, data.classes, data.lessons).filter(s => s.startTime === slot);
                           // Teacher: only show sessions from my classes
                           const sessions = user.role === 'admin' ? allSessions : allSessions.filter(s => s.teacherId === user.teacherId || s.assistantId === user.teacherId);
                           return (
@@ -2613,7 +2619,7 @@ export default function App() {
                           );
                         })}
                       </div>
-                    ))}
+                    ))})()}
                   </div>
                 </div>
               </div>
@@ -3249,7 +3255,7 @@ export default function App() {
                     <thead className="bg-slate-50 text-slate-500 text-[10px] font-bold uppercase tracking-wider">
                       <tr>
                         <th className="px-6 py-4">Học viên</th>
-                        <th className="px-6 py-4">Học phí</th>
+                        {currentUser?.role !== 'teacher' && <th className="px-6 py-4">Học phí</th>}
                         <th className="px-6 py-4">Liên hệ</th>
                         <th className="px-6 py-4">Chuyên cần</th>
                         <th className="px-6 py-4">Trạng thái</th>
@@ -3282,24 +3288,34 @@ export default function App() {
                                 <span className="font-bold text-slate-800">{student.name || 'Học viên'}</span>
                               </div>
                             </td>
+                            {currentUser?.role !== 'teacher' && (
+                              <td className="px-6 py-4">
+                                <div className="text-xs">
+                                  {discount ? (
+                                    <>
+                                      <p className="text-slate-400 line-through">{formatCurrency(cls.tuitionFee)}</p>
+                                      <p className="font-bold text-success">
+                                        {formatCurrency(actualTuition)}
+                                        <span className="ml-1 text-[10px] text-error">
+                                          (-{discount.type === 'percent' ? `${discount.value}%` : formatCurrency(discount.value)})
+                                        </span>
+                                      </p>
+                                    </>
+                                  ) : (
+                                    <p className="font-bold text-slate-700">{formatCurrency(cls.tuitionFee)}</p>
+                                  )}
+                                </div>
+                              </td>
+                            )}
                             <td className="px-6 py-4">
-                              <div className="text-xs">
-                                {discount ? (
-                                  <>
-                                    <p className="text-slate-400 line-through">{formatCurrency(cls.tuitionFee)}</p>
-                                    <p className="font-bold text-success">
-                                      {formatCurrency(actualTuition)}
-                                      <span className="ml-1 text-[10px] text-error">
-                                        (-{discount.type === 'percent' ? `${discount.value}%` : formatCurrency(discount.value)})
-                                      </span>
-                                    </p>
-                                  </>
-                                ) : (
-                                  <p className="font-bold text-slate-700">{formatCurrency(cls.tuitionFee)}</p>
-                                )}
+                              <div className="flex flex-col gap-1">
+                                <span className="text-xs font-medium text-slate-700">{student.parentName || 'Phụ huynh'}</span>
+                                <div className="flex items-center gap-1 text-[10px] text-slate-500">
+                                  <Phone size={10} />
+                                  <span>{student.parentPhone || student.phone || 'Chưa cập nhật SĐT'}</span>
+                                </div>
                               </div>
                             </td>
-                            <td className="px-6 py-4 text-xs text-slate-500">{student.phone}</td>
                             <td className="px-6 py-4">
                               <div className="flex items-center gap-2">
                                 <div className="flex-1 h-1.5 bg-slate-100 rounded-full max-w-[60px]">
