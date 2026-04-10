@@ -115,6 +115,7 @@ export interface MonthlyBill {
   totalSessions: number;
   absentSessions: number;
   makeupSessions: number;
+  previousDebt?: number;
   notes?: string;
 }
 
