@@ -3255,7 +3255,7 @@ export default function App() {
                     <thead className="bg-slate-50 text-slate-500 text-[10px] font-bold uppercase tracking-wider">
                       <tr>
                         <th className="px-6 py-4">Học viên</th>
-                        {currentUser?.role !== 'teacher' && <th className="px-6 py-4">Học phí</th>}
+                        {user.role !== 'teacher' && <th className="px-6 py-4">Học phí</th>}
                         <th className="px-6 py-4">Liên hệ</th>
                         <th className="px-6 py-4">Chuyên cần</th>
                         <th className="px-6 py-4">Trạng thái</th>
@@ -3288,7 +3288,7 @@ export default function App() {
                                 <span className="font-bold text-slate-800">{student.name || 'Học viên'}</span>
                               </div>
                             </td>
-                            {currentUser?.role !== 'teacher' && (
+                            {user.role !== 'teacher' && (
                               <td className="px-6 py-4">
                                 <div className="text-xs">
                                   {discount ? (
@@ -4218,6 +4218,38 @@ export default function App() {
               <div className="space-y-4">
                 {Object.keys(teacher.salaryAdjustments || {}).filter(k => teacher.salaryAdjustments![k].paid).sort().reverse().map(month => {
                   const adj = teacher.salaryAdjustments![month];
+                  
+                  // Calculate hours for this past month
+                  const pastLessons = data.lessons.filter(l => 
+                    l.classId && 
+                    (l.teacherId === teacher.id || l.assistantId === teacher.id) &&
+                    dayjs(l.date).format('YYYY-MM') === month &&
+                    l.status !== 'cancel'
+                  );
+                  let pastHours = 0;
+                  pastLessons.forEach(session => {
+                    let hours = 0;
+                    if (session.startTime && session.endTime) {
+                      const start = dayjs(`2000-01-01 ${session.startTime}`);
+                      const end = dayjs(`2000-01-01 ${session.endTime}`);
+                      hours = end.diff(start, 'hour', true);
+                    } else {
+                      const cls = data.classes.find(c => c.id === session.classId);
+                      if (cls && cls.schedule) {
+                        const dayOfWeek = dayjs(session.date).day();
+                        const sc = cls.schedule.find(s => s.day === dayOfWeek) || cls.schedule[0];
+                        if (sc) {
+                          const start = dayjs(`2000-01-01 ${sc.startTime}`);
+                          const end = dayjs(`2000-01-01 ${sc.endTime}`);
+                          hours = end.diff(start, 'hour', true);
+                        }
+                      }
+                    }
+                    pastHours += hours;
+                  });
+                  const pastBasePay = pastHours * (teacher.hourlyRate || 0);
+                  const totalPaid = pastBasePay + adj.allowance - adj.penalty;
+
                   return (
                     <div key={month} className="flex flex-col md:flex-row md:items-center justify-between p-5 bg-white rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow gap-4 relative overflow-hidden">
                       <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-success"></div>
@@ -4236,6 +4268,11 @@ export default function App() {
                       </div>
                       <div className="flex gap-6 items-center bg-slate-50 px-5 py-3 rounded-xl border border-slate-100">
                          <div>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase text-right mb-1">Cơ bản</p>
+                            <p className="text-sm font-bold text-slate-700 text-right">{formatCurrency(pastBasePay)}</p>
+                         </div>
+                         <div className="w-px h-8 bg-slate-200"></div>
+                         <div>
                             <p className="text-[10px] font-bold text-slate-400 uppercase text-right mb-1">Phụ cấp</p>
                             <p className="text-sm font-bold text-success text-right">+{formatCurrency(adj.allowance)}</p>
                          </div>
@@ -4243,6 +4280,11 @@ export default function App() {
                          <div>
                             <p className="text-[10px] font-bold text-slate-400 uppercase text-right mb-1">Khấu trừ</p>
                             <p className="text-sm font-bold text-error text-right">-{formatCurrency(adj.penalty)}</p>
+                         </div>
+                         <div className="w-px h-8 bg-slate-200"></div>
+                         <div>
+                            <p className="text-[10px] font-bold text-primary uppercase text-right mb-1">Tổng nhận</p>
+                            <p className="text-sm font-bold text-primary text-right">{formatCurrency(Math.max(0, totalPaid))}</p>
                          </div>
                       </div>
                     </div>
