@@ -2044,7 +2044,7 @@ export default function App() {
   }, [data]);
 
   const handleSaveLesson = (lessonData: Lesson | Omit<Lesson, 'id'>) => {
-    setData(prev => {
+    updateData(prev => {
       const isUpdate = 'id' in lessonData;
       let newLessons;
       if (isUpdate) {
@@ -2073,7 +2073,7 @@ export default function App() {
       cancelButtonText: 'Hủy'
     }).then((result) => {
       if (result.isConfirmed) {
-        setData(prev => ({
+        updateData(prev => ({
           ...prev,
           teachers: prev.teachers.filter(t => t.id !== id)
         }));
@@ -2094,7 +2094,7 @@ export default function App() {
       cancelButtonText: 'Hủy'
     }).then((result) => {
       if (result.isConfirmed) {
-        setData(prev => ({
+        updateData(prev => ({
           ...prev,
           classes: prev.classes.filter(c => c.id !== id),
           lessons: prev.lessons.filter(l => l.classId !== id),
@@ -2109,7 +2109,7 @@ export default function App() {
   };
 
   const handleSaveClass = (cls: Class) => {
-    setData(prev => {
+    updateData(prev => {
       const existing = prev.classes.find(c => c.id === cls.id);
       let newClasses;
       if (existing) {
@@ -2137,7 +2137,7 @@ export default function App() {
   };
 
   const handleSaveStudent = (student: Student) => {
-    setData(prev => {
+    updateData(prev => {
       const exists = prev.students.find(s => s.id === student.id);
       if (exists) {
         return {
@@ -2155,7 +2155,7 @@ export default function App() {
   };
 
   const handleSaveTeacher = (teacher: Teacher) => {
-    setData(prev => {
+    updateData(prev => {
       const exists = prev.teachers.find(t => t.id === teacher.id);
       if (exists) {
         return {
@@ -3552,7 +3552,7 @@ export default function App() {
                                                 homework: '',
                                                 status: 'cancel'
                                               };
-                                              setData(prev => ({ ...prev, lessons: [...prev.lessons, newLesson] }));
+                                              updateData(prev => ({ ...prev, lessons: [...prev.lessons, newLesson] }));
                                             }
                                           }}
                                           className="p-2 text-error hover:bg-error/10 rounded-lg transition-colors"
@@ -3576,7 +3576,7 @@ export default function App() {
                                               cancelButtonText: 'Hủy'
                                             }).then((result) => {
                                               if (result.isConfirmed) {
-                                                setData(prev => ({
+                                                updateData(prev => ({
                                                   ...prev,
                                                   lessons: prev.lessons.filter(l => l.id !== session.id)
                                                 }));
@@ -3960,10 +3960,231 @@ export default function App() {
     );
   };
 
-  const renderTeachers = () => {
-    // Teacher role: only show their own profile
-    const baseTeachers = user.role === 'admin' ? data.teachers : data.teachers.filter(t => t.id === user.teacherId);
+  const renderTeacherDashboard = (teacher: Teacher) => {
+    const currentMonthStr = dayjs().format('YYYY-MM');
+    const teacherClasses = data.classes.filter(c => c.teacherId === teacher.id);
+    const teacherLessonsThisMonth = data.lessons.filter(l => 
+      l.classId && 
+      (l.teacherId === teacher.id || l.assistantId === teacher.id) &&
+      dayjs(l.date).format('YYYY-MM') === currentMonthStr &&
+      l.status !== 'cancel'
+    );
     
+    // Calculate total teaching hours for this month
+    let totalHoursThisMonth = 0;
+    const classBreakdown: Record<string, { sessions: number, hours: number }> = {};
+
+    teacherLessonsThisMonth.forEach(lesson => {
+      const cls = data.classes.find(c => c.id === lesson.classId);
+      let hours = 0;
+      if (lesson.startTime && lesson.endTime) {
+        const start = dayjs(`2000-01-01 ${lesson.startTime}`);
+        const end = dayjs(`2000-01-01 ${lesson.endTime}`);
+        hours = end.diff(start, 'hour', true);
+      } else if (cls && cls.schedule) {
+        const dayOfWeek = dayjs(lesson.date).day();
+        const sc = cls.schedule.find(s => s.day === dayOfWeek) || cls.schedule[0];
+        if (sc) {
+          const start = dayjs(`2000-01-01 ${sc.startTime}`);
+          const end = dayjs(`2000-01-01 ${sc.endTime}`);
+          hours = end.diff(start, 'hour', true);
+        }
+      }
+      totalHoursThisMonth += hours;
+      
+      if (cls) {
+        if (!classBreakdown[cls.id]) {
+          classBreakdown[cls.id] = { sessions: 0, hours: 0 };
+        }
+        classBreakdown[cls.id].sessions += 1;
+        classBreakdown[cls.id].hours += hours;
+      }
+    });
+
+    const currentAdj = teacher.salaryAdjustments?.[currentMonthStr] || { allowance: 0, penalty: 0, notes: '', paid: false };
+    const baseSalary = teacher.baseSalary || 0;
+    const expectedSalary = baseSalary + (totalHoursThisMonth * (teacher.hourlyRate || 0) * ((teacher.kpi || 100) / 100)) + Number(currentAdj.allowance) - Number(currentAdj.penalty);
+
+    const seniorityMonths = teacher.startDate ? dayjs().diff(dayjs(teacher.startDate), 'month') : 0;
+
+    const handleEditProfile = async () => {
+      const { value: formValues } = await Swal.fire({
+        title: 'Cập nhật thông tin',
+        html: `
+          <div class="space-y-4 pt-4">
+            <div class="text-left">
+              <label class="text-xs font-bold text-slate-500">Email</label>
+              <input id="swal-input-email" type="email" class="w-full px-4 py-2 border border-slate-200 rounded-xl" value="${teacher.email || ''}">
+            </div>
+            <div class="text-left">
+              <label class="text-xs font-bold text-slate-500">Số điện thoại</label>
+              <input id="swal-input-phone" type="tel" class="w-full px-4 py-2 border border-slate-200 rounded-xl" value="${teacher.phone || ''}">
+            </div>
+          </div>
+        `,
+        focusConfirm: false,
+        showCancelButton: true,
+        confirmButtonText: 'Lưu thay đổi',
+        cancelButtonText: 'Hủy bỏ',
+        customClass: { popup: 'rounded-3xl' },
+        preConfirm: () => {
+          return {
+            email: (document.getElementById('swal-input-email') as HTMLInputElement).value,
+            phone: (document.getElementById('swal-input-phone') as HTMLInputElement).value
+          }
+        }
+      });
+
+      if (formValues) {
+        updateData(prev => ({
+          ...prev,
+          teachers: prev.teachers.map(t => t.id === teacher.id ? { ...t, email: formValues.email, phone: formValues.phone } : t)
+        }));
+        Swal.fire('Thành công', 'Thông tin đã được cập nhật', 'success');
+      }
+    };
+
+    return (
+      <div className="space-y-6">
+        <h2 className="text-2xl font-bold">Hồ sơ cá nhân</h2>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-1 space-y-6">
+            <div className="glass-card p-6 relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-full h-24 bg-gradient-to-r from-primary/20 to-secondary/20" />
+              <div className="relative pt-6 flex flex-col items-center text-center space-y-4">
+                <div className="w-24 h-24 rounded-3xl bg-white shadow-xl flex items-center justify-center text-primary font-bold text-3xl border-4 border-white z-10 overflow-hidden">
+                  {teacher.avatar ? <img src={teacher.avatar} alt="avatar" className="w-full h-full object-cover" /> : (teacher.name?.charAt(0) || '?')}
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-slate-800">{teacher.name}</h3>
+                  <p className="text-sm text-slate-500 font-medium mt-1">{teacher.specialization} • Thâm niên: {seniorityMonths} tháng</p>
+                </div>
+                <span className={cn(
+                  "px-3 py-1 text-xs font-bold rounded-full uppercase tracking-wider",
+                  teacher.status === 'active' ? "bg-success/10 text-success" : "bg-error/10 text-error"
+                )}>
+                  {teacher.status === 'active' ? 'Đang hoạt động' : 'Đã nghỉ'}
+                </span>
+              </div>
+
+              <div className="pt-6 mt-6 border-t border-slate-100 space-y-3">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Thông tin liên hệ</h4>
+                  <button onClick={handleEditProfile} className="text-xs font-bold text-primary hover:underline flex items-center gap-1 bg-primary/10 px-2 py-1 rounded-lg">
+                    <Settings size={12}/> Chỉnh sửa
+                  </button>
+                </div>
+                <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl">
+                  <Mail size={16} className="text-slate-400" />
+                  <span className="text-sm font-medium text-slate-700">{teacher.email || 'Chưa cập nhật'}</span>
+                </div>
+                <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl">
+                  <Phone size={16} className="text-slate-400" />
+                  <span className="text-sm font-medium text-slate-700">{teacher.phone || 'Chưa cập nhật'}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="lg:col-span-2 space-y-6">
+            <div className="grid grid-cols-2 gap-4">
+              <StatCard title="Giờ dạy tháng này" value={`${totalHoursThisMonth.toFixed(1)}h`} icon={Clock} color="bg-secondary" />
+              <StatCard title="KPI Hiện tại" value={`${teacher.kpi}%`} icon={TrendingUp} color="bg-success" />
+              <StatCard title="Phụ cấp tháng" value={`+${formatCurrency(currentAdj.allowance)}`} icon={Plus} color="bg-primary" />
+              <StatCard title="Khấu trừ tháng" value={`-${formatCurrency(currentAdj.penalty)}`} icon={TrendingDown} color="bg-error" />
+            </div>
+
+            <div className="glass-card p-6">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-800">Lương dự kiến ({currentMonthStr})</h3>
+                  <p className="text-sm text-slate-500">Tính theo giờ dạy thực tế của tháng hiện tại</p>
+                </div>
+                <div className="text-right flex flex-col items-end">
+                  <p className="text-3xl font-bold text-primary">{formatCurrency(expectedSalary)}</p>
+                  {currentAdj.paid ? 
+                    <span className="inline-flex items-center gap-1 text-[10px] bg-success/10 text-success px-2 py-1 rounded-full font-bold uppercase mt-2"><CheckCircle2 size={12}/> Đã thanh toán</span> : 
+                    <span className="inline-flex items-center gap-1 text-[10px] bg-warning/10 text-warning px-2 py-1 rounded-full font-bold uppercase mt-2"><Clock size={12}/> Chờ thanh toán</span>
+                  }
+                </div>
+              </div>
+              
+              <div className="space-y-4">
+                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Chi tiết giờ dạy các lớp</h4>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead className="bg-slate-50 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                      <tr>
+                        <th className="p-3 rounded-l-xl">Lớp học</th>
+                        <th className="p-3">Số buổi dạy</th>
+                        <th className="p-3 rounded-r-xl">Tổng giờ</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {Object.keys(classBreakdown).length > 0 ? Object.keys(classBreakdown).map(classId => {
+                        const clsName = data.classes.find(c => c.id === classId)?.name || 'Unknown';
+                        return (
+                          <tr key={classId} className="text-sm hover:bg-slate-50/50 transition-colors">
+                            <td className="p-3 font-bold text-slate-700">{clsName}</td>
+                            <td className="p-3 text-slate-600 font-medium">{classBreakdown[classId].sessions} buổi</td>
+                            <td className="p-3 text-primary font-bold">{classBreakdown[classId].hours.toFixed(1)}h</td>
+                          </tr>
+                        );
+                      }) : (
+                        <tr><td colSpan={3} className="p-4 text-center text-slate-400 italic">Chưa có dữ liệu dạy tháng này</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <div className="glass-card p-6">
+              <h3 className="text-lg font-bold text-slate-800 mb-6">Lịch sử nhận lương</h3>
+              <div className="space-y-4">
+                {Object.keys(teacher.salaryAdjustments || {}).filter(k => teacher.salaryAdjustments![k].paid).sort().reverse().map(month => {
+                  const adj = teacher.salaryAdjustments![month];
+                  return (
+                    <div key={month} className="flex flex-col md:flex-row md:items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 gap-4">
+                      <div>
+                        <h4 className="font-bold text-slate-700">Lương Tháng {month}</h4>
+                        {adj.notes && <p className="text-xs text-slate-500 mt-1 italic max-w-md">{adj.notes}</p>}
+                      </div>
+                      <div className="flex gap-4 md:gap-6 items-center">
+                         <div>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase text-right">Phụ cấp</p>
+                            <p className="text-sm font-bold text-success text-right">+{formatCurrency(adj.allowance)}</p>
+                         </div>
+                         <div>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase text-right">Khấu trừ</p>
+                            <p className="text-sm font-bold text-error text-right">-{formatCurrency(adj.penalty)}</p>
+                         </div>
+                         <div className="w-8 h-8 rounded-full bg-success/10 flex items-center justify-center text-success ml-2 shadow-sm border border-success/20" title="Đã thanh toán">
+                            <CheckCircle2 size={16} />
+                         </div>
+                      </div>
+                    </div>
+                  );
+                })}
+                {Object.keys(teacher.salaryAdjustments || {}).filter(k => teacher.salaryAdjustments![k].paid).length === 0 && (
+                  <p className="text-center text-slate-400 italic py-6 bg-slate-50 rounded-xl border border-slate-100">Chưa có lịch sử nhận lương nào.</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderTeachers = () => {
+    if (user.role === 'teacher') {
+      const teacher = data.teachers.find(t => t.id === user.teacherId);
+      if (!teacher) return <div className="p-8 text-center text-slate-500">Giáo viên không tồn tại</div>;
+      return renderTeacherDashboard(teacher);
+    }
+
+    const baseTeachers = data.teachers;
     const filteredTeachers = baseTeachers.filter(teacher => {
       const searchLower = (teacherSearch || '').toLowerCase();
       const matchesSearch = 
