@@ -6201,13 +6201,7 @@ export default function App() {
         </div>
       </main>
 
-      {/* Mobile Sidebar Overlay */}
-      {!isSidebarOpen && (
-        <div 
-          className="fixed inset-0 z-40 bg-slate-900/20 backdrop-blur-sm lg:hidden"
-          onClick={() => setIsSidebarOpen(true)}
-        />
-      )}
+
 
       {/* Class Detail Modal */}
       <ClassDetailModal 
