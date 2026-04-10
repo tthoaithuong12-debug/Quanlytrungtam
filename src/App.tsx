@@ -4634,14 +4634,14 @@ export default function App() {
     const isAfterFifth = dayjs().date() > 5 && dayjs().isSame(selectedMonth, 'month');
 
     const handleUpdateBill = (billId: string, updates: Partial<MonthlyBill>) => {
-      setData(prev => ({
+      updateData(prev => ({
         ...prev,
         monthlyBills: (prev.monthlyBills || []).map(b => {
           if (b.id === billId) {
             const updatedBill = { ...b, ...updates };
             const remaining = updatedBill.totalAmount - updatedBill.amountPaid;
             let status: MonthlyBill['status'] = 'debt';
-            if (updatedBill.amountPaid === 0) status = 'debt';
+            if (updatedBill.amountPaid === 0) status = 'billed';
             else if (remaining > 0) status = 'partial';
             else status = 'paid';
             return { ...updatedBill, status };
@@ -4749,8 +4749,7 @@ export default function App() {
                 <button 
                   onClick={() => {
                     data.students.filter(s => s.status === 'active').forEach(s => {
-                      const existing = (data.monthlyBills || []).find(b => b.studentId === s.id && b.month === monthKey);
-                      if (!existing) handleCreateBill(s.id);
+                      handleCreateBill(s.id);
                     });
                   }}
                   className="text-xs font-bold text-primary hover:underline"
@@ -4843,65 +4842,37 @@ export default function App() {
                           </div>
                         </td>
                         <td className="px-6 py-4 text-sm font-bold text-slate-700">
-                          {formatCurrency(activeClasses.reduce((sum, c) => {
-                            const discount = c.studentDiscounts?.[student.id];
-                            let fee = c.tuitionFee || 0;
-                            if (discount) {
-                              if (discount.type === 'percent') fee = fee * (1 - discount.value / 100);
-                              else fee = Math.max(0, fee - discount.value);
-                            }
-                            return sum + fee;
-                          }, 0))}
+                          {formatCurrency(activeClasses.reduce((sum, c) => sum + (c.tuitionFee || 0), 0))}
                         </td>
                         <td className="px-6 py-4 text-sm font-bold text-error">
                           <div className="flex flex-col gap-0.5">
-                            <span>-{formatCurrency(bill.deductions)}</span>
+                            {(() => {
+                              const baseTuition = activeClasses.reduce((sum, c) => sum + (c.tuitionFee || 0), 0);
+                              const discountedTuition = activeClasses.reduce((sum, c) => {
+                                const discount = c.studentDiscounts?.[student.id];
+                                let fee = c.tuitionFee || 0;
+                                if (discount) {
+                                  if (discount.type === 'percent') fee = fee * (1 - discount.value / 100);
+                                  else fee = Math.max(0, fee - discount.value);
+                                }
+                                return sum + fee;
+                              }, 0);
+                              const discountAmount = baseTuition - discountedTuition;
+                              return discountAmount > 0 ? (
+                                <span className="text-[10px] text-success truncate" title="Giảm giá:">-Giảm giá: {formatCurrency(discountAmount)}</span>
+                              ) : null;
+                            })()}
+                            <span>-Vắng: {formatCurrency(bill.deductions)}</span>
                             {bill.previousDebt && bill.previousDebt > 0 ? (
                               <span className="text-[10px] text-warning truncate" title="Nợ cũ:">+Nợ cũ: {formatCurrency(bill.previousDebt)}</span>
                             ) : null}
                           </div>
                         </td>
-                        <td className="px-6 py-4 text-sm font-bold text-primary">
-                          {formatCurrency(Math.max(0, bill.totalAmount - bill.amountPaid))}
+                        <td className="px-6 py-4 text-sm font-bold text-slate-800">
+                          {formatCurrency(bill.totalAmount)}
                         </td>
-                        <td className="px-6 py-4">
-                          <input 
-                            type="number" 
-                            value={bill.amountPaid}
-                            onChange={(e) => handleUpdateBill(bill.id, { amountPaid: Number(e.target.value) })}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                Swal.fire({
-                                  title: 'Xác nhận đóng học phí',
-                                  text: `Bạn xác nhận học viên ${student.name} đã đóng ${formatCurrency(bill.amountPaid)}?`,
-                                  icon: 'question',
-                                  showCancelButton: true,
-                                  confirmButtonText: 'Xác nhận',
-                                  cancelButtonText: 'Hủy'
-                                }).then((result) => {
-                                  if (result.isConfirmed) {
-                                    handleUpdateBill(bill.id, { status: bill.amountPaid >= bill.totalAmount ? 'paid' : 'partial' });
-                                    
-                                    const newTxn: Transaction = {
-                                      id: `txn-${Date.now()}`,
-                                      type: 'income',
-                                      amount: bill.amountPaid,
-                                      category: 'Học phí',
-                                      description: `Học phí tháng ${monthStr} - ${student.name}`,
-                                      date: dayjs().format('YYYY-MM-DD'),
-                                      relatedId: student.id
-                                    };
-                                    setData(prev => ({
-                                      ...prev,
-                                      transactions: [...prev.transactions, newTxn]
-                                    }));
-                                    Swal.fire('Thành công', 'Đã ghi nhận đóng học phí', 'success');
-                                  }
-                                });
-                              }
-                            }}
-                            className="w-24 px-2 py-1 border border-slate-200 rounded text-sm outline-none focus:ring-1 focus:ring-primary"
-                          />
+                        <td className="px-6 py-4 text-sm font-bold text-success">
+                          {formatCurrency(bill.amountPaid)}
                         </td>
                         <td className="px-6 py-4 text-sm font-bold text-error">
                           {formatCurrency(Math.max(0, bill.totalAmount - bill.amountPaid))}
@@ -4923,29 +4894,70 @@ export default function App() {
                           >
                             <Download size={16} />
                           </button>
-                          {bill.amountPaid > 0 && bill.status !== 'paid' && (
+                          {bill.totalAmount - bill.amountPaid > 0 && (
                             <button 
-                              onClick={() => {
-                                handleUpdateBill(bill.id, { status: 'paid' });
-                                // Add transaction
-                                const newTxn: Transaction = {
-                                  id: `txn-${Date.now()}`,
-                                  type: 'income',
-                                  amount: bill.amountPaid,
-                                  category: 'Học phí',
-                                  description: `Học phí tháng ${monthStr} - ${student.name}`,
-                                  date: dayjs().format('YYYY-MM-DD'),
-                                  relatedId: student.id
-                                };
-                                setData(prev => ({
-                                  ...prev,
-                                  transactions: [...prev.transactions, newTxn]
-                                }));
-                              }}
-                              className="p-2 text-success hover:bg-success/10 rounded-lg transition-colors"
-                              title="Xác nhận đóng phí"
+                               onClick={() => {
+                                 const remaining = Math.max(0, bill.totalAmount - bill.amountPaid);
+                                 Swal.fire({
+                                   title: 'Thu học phí',
+                                   html: `
+                                     <div class="text-sm space-y-2 text-left mb-4">
+                                       <p>Học viên: <strong class="text-slate-800">${student.name}</strong></p>
+                                       <p>Cần thu thêm: <strong class="text-error">${formatCurrency(remaining)}</strong></p>
+                                     </div>
+                                     <input id="swal-payment-input" type="number" class="w-full px-3 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-primary/50" placeholder="Nhập số tiền nộp đợt này..." value="${remaining}">
+                                   `,
+                                   showCancelButton: true,
+                                   confirmButtonText: 'Thu tiền',
+                                   cancelButtonText: 'Hủy',
+                                   preConfirm: () => {
+                                     const val = (document.getElementById('swal-payment-input') as HTMLInputElement).value;
+                                     const num = Number(val);
+                                     if (!val || isNaN(num) || num <= 0) {
+                                       Swal.showValidationMessage('Vui lòng nhập số tiền hợp lệ lớn hơn 0');
+                                       return false;
+                                     }
+                                     return num;
+                                   }
+                                 }).then((result) => {
+                                   if (result.isConfirmed) {
+                                      const amount = result.value;
+                                      const newTotalPaid = bill.amountPaid + amount;
+                                      
+                                      handleUpdateBill(bill.id, { 
+                                         amountPaid: newTotalPaid,
+                                      });
+                                      
+                                      const newTxn: Transaction = {
+                                        id: `txn-${Date.now()}`,
+                                        type: 'income',
+                                        amount: amount,
+                                        category: 'Học phí',
+                                        description: `Thu học phí tháng ${monthStr} - ${student.name}`,
+                                        date: dayjs().format('YYYY-MM-DD'),
+                                        relatedId: student.id
+                                      };
+                                      updateData(prev => ({
+                                        ...prev,
+                                        transactions: [...(prev.transactions || []), newTxn]
+                                      }));
+                                      
+                                      Swal.fire({
+                                        title: 'Thành công',
+                                        text: `Đã ghi nhận thu ${formatCurrency(amount)}`,
+                                        icon: 'success',
+                                        toast: true,
+                                        position: 'top-end',
+                                        showConfirmButton: false,
+                                        timer: 3000
+                                      });
+                                   }
+                                 });
+                               }}
+                               className="p-2 text-success hover:bg-success/10 rounded-lg transition-colors"
+                               title="Thu tiền đợt này"
                             >
-                              <CheckCircle2 size={16} />
+                               <Wallet size={16} />
                             </button>
                           )}
                         </td>
