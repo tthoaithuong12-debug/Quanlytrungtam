@@ -4673,7 +4673,10 @@ export default function App() {
       const student = data.students.find(s => s.id === studentId);
       if (!student) return;
 
-      const activeClasses = data.classes.filter(c => student.classes.includes(c.id) && c.status === 'active');
+      // Lấy tất cả lớp học mà HV đang tham gia (dùng dynamic status thay vì stored status)
+      const activeClasses = data.classes.filter(c => 
+        student.classes.includes(c.id) && getClassStatus(c) === 'active'
+      );
       const totalTuition = activeClasses.reduce((sum, c) => {
         const discount = c.studentDiscounts?.[studentId];
         let fee = c.tuitionFee || 0;
@@ -4684,31 +4687,36 @@ export default function App() {
         return sum + fee;
       }, 0);
 
-      // Tính tổng số buổi DỰ KIẾN tháng này (từ schedule)
+      // Tính tổng số buổi DỰ KIẾN tháng này từ lịch học (schedule-based)
       let totalSessions = 0;
       const daysInMonth = selectedMonth.daysInMonth();
       for (let i = 1; i <= daysInMonth; i++) {
         const date = selectedMonth.date(i);
-        const sessions = getSessionsForDate(date, data.classes, data.lessons);
-        totalSessions += sessions.filter(s => student.classes.includes(s.id) && s.status !== 'cancel').length;
+        const dayOfWeek = date.day();
+        activeClasses.forEach(cls => {
+          const matchingSchedules = (cls.schedule || []).filter(s => s.day === dayOfWeek);
+          totalSessions += matchingSchedules.length;
+        });
       }
 
-      // Đếm NGÀY NGHỈ / BÙ TỪ BÀI HỌC THỰC TẾ tháng trước (chỉ từ lớp mà HV đang học)
-      const studentClassIds = activeClasses.map(c => c.id);
+      // Đếm NGÀY NGHỈ / BÙ TỪ BÀI HỌC THỰC TẾ tháng trước
+      // Lấy TẤT CẢ lớp mà HV tham gia (không chỉ active, vì tháng trước có thể khác)
+      const allStudentClassIds = student.classes;
       const prevMonthLessons = data.lessons.filter(l => 
         dayjs(l.date).isSame(prevMonth, 'month') && 
-        studentClassIds.includes(l.classId) &&
-        l.attendance?.some(a => a.studentId === studentId) && 
+        allStudentClassIds.includes(l.classId) &&
         l.status !== 'cancel'
       );
 
+      // Đếm vắng: lesson có attendance entry cho student với status='absent'
       const absentSessions = prevMonthLessons.filter(l => {
-        const att = l.attendance.find(a => a.studentId === studentId);
+        const att = (l.attendance || []).find(a => a.studentId === studentId);
         return att?.status === 'absent';
       }).length;
 
+      // Đếm bù: lesson có attendance entry cho student với status='make-up'
       const makeupSessions = prevMonthLessons.filter(l => {
-        const att = l.attendance.find(a => a.studentId === studentId);
+        const att = (l.attendance || []).find(a => a.studentId === studentId);
         return att?.status === 'make-up';
       }).length;
 
