@@ -3007,6 +3007,7 @@ export default function App() {
       const classStudents = (data.students || []).filter(s => (cls.students || []).includes(s.id));
       
       // Generate all sessions (recurring + overrides + make-ups)
+      // isActual = true nghĩa là GV đã ghi nhận buổi học thực tế (có lesson record trong DB)
       const generateAllSessions = () => {
         const sessions: any[] = [];
         const start = dayjs(cls.startDate);
@@ -3014,7 +3015,10 @@ export default function App() {
         
         if (!start.isValid()) return [];
 
-        // 1. Recurring sessions
+        // Collect actual lessons for this class for quick lookup
+        const actualLessons = data.lessons.filter(l => l.classId === cls.id);
+
+        // 1. Recurring sessions from schedule
         let current = start;
         while (current.isBefore(end) || current.isSame(end, 'day')) {
           const dayOfWeek = current.day();
@@ -3022,7 +3026,8 @@ export default function App() {
           
           dayScheds.forEach(daySched => {
             const dateStr = current.format('YYYY-MM-DD');
-            const override = data.lessons.find(l => l.classId === cls.id && l.date === dateStr && l.startTime === daySched.startTime && l.status !== 'make-up');
+            const override = actualLessons.find(l => l.date === dateStr && l.startTime === daySched.startTime && l.status !== 'make-up');
+            const hasActualLesson = !!override;
             
             sessions.push({
               id: override?.id || `auto_${cls.id}_${dateStr}_${daySched.startTime}`,
@@ -3035,7 +3040,8 @@ export default function App() {
               content: override?.content,
               homework: override?.homework,
               attendance: override?.attendance || [],
-              isRecurring: true
+              isRecurring: true,
+              isActual: hasActualLesson
             });
           });
           current = current.add(1, 'day');
@@ -3043,15 +3049,14 @@ export default function App() {
           if (sessions.length > 1000) break;
         }
         
-        // 2. All actual lessons (including make-ups and unscheduled ones)
-        const actualLessons = data.lessons.filter(l => l.classId === cls.id);
+        // 2. Extra actual lessons not captured by schedule (make-ups, unscheduled)
         actualLessons.forEach(l => {
-          // Check if this lesson was already included as an override
           const isOverride = sessions.some(s => s.id === l.id);
           if (!isOverride) {
             sessions.push({
               ...l,
-              isRecurring: false
+              isRecurring: false,
+              isActual: true
             });
           }
         });
@@ -3070,7 +3075,7 @@ export default function App() {
       const classLessons = (data.lessons || []).filter(l => l.classId === cls.id).sort((a, b) => dayjs(b.date).diff(dayjs(a.date)));
 
       // Calculate stats for overview
-      const totalSessions = allClassSessions.filter(s => s.status !== 'cancel' && dayjs(s.date).isBefore(dayjs())).length;
+      const totalSessions = allClassSessions.filter(s => s.isActual && s.status !== 'cancel' && dayjs(s.date).isBefore(dayjs())).length;
       let totalHours = 0;
       if (cls.schedule && cls.schedule[0]) {
         const firstSchedule = cls.schedule[0];
@@ -3460,7 +3465,8 @@ export default function App() {
                           return (
                             <tr key={session.id} className={cn(
                               "hover:bg-slate-50 transition-colors",
-                              session.status === 'cancel' && "bg-slate-50/50 opacity-60"
+                              session.status === 'cancel' && "bg-slate-50/50 opacity-60",
+                              !session.isActual && "opacity-50 bg-amber-50/30 border-l-2 border-dashed border-amber-300"
                             )}>
                               <td className="px-6 py-4">
                                 <p className="text-sm font-bold text-slate-700">{dayjs(session.date).format('DD/MM/YYYY')}</p>
@@ -3511,14 +3517,20 @@ export default function App() {
                                 )}
                               </td>
                               <td className="px-6 py-4">
-                                <span className={cn(
-                                  "px-2 py-0.5 rounded-full text-[10px] font-bold uppercase",
-                                  session.status === 'normal' ? "bg-success/10 text-success" : 
-                                  session.status === 'cancel' ? "bg-error/10 text-error" : "bg-secondary/10 text-secondary"
-                                )}>
-                                  {session.status === 'normal' ? 'Bình thường' : 
-                                   session.status === 'cancel' ? 'Hủy buổi' : 'Dạy bù'}
-                                </span>
+                                {!session.isActual ? (
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-slate-100 text-slate-400 border border-dashed border-slate-300">
+                                    Chưa ghi nhận
+                                  </span>
+                                ) : (
+                                  <span className={cn(
+                                    "px-2 py-0.5 rounded-full text-[10px] font-bold uppercase",
+                                    session.status === 'normal' ? "bg-success/10 text-success" : 
+                                    session.status === 'cancel' ? "bg-error/10 text-error" : "bg-secondary/10 text-secondary"
+                                  )}>
+                                    {session.status === 'normal' ? 'Bình thường' : 
+                                     session.status === 'cancel' ? 'Hủy buổi' : 'Dạy bù'}
+                                  </span>
+                                )}
                               </td>
                               <td className="px-6 py-4">
                                 <div className="flex items-center gap-2">
@@ -3640,10 +3652,13 @@ export default function App() {
                   if (!monthlyData[month]) {
                     monthlyData[month] = { sessions: [], hours: 0, teacherCost: 0, revenue: 0 };
                   }
-                  monthlyData[month].sessions.push(session);
+                  // Chỉ đếm buổi thực tế (đã có lesson record) vào thống kê tài chính
+                  if (session.isActual) {
+                    monthlyData[month].sessions.push(session);
+                  }
                   
-                  // Only calculate cost for non-cancelled sessions
-                  if (session.status !== 'cancel') {
+                  // Chỉ tính chi phí GV cho buổi thực tế, không tính buổi kế hoạch
+                  if (session.isActual && session.status !== 'cancel') {
                     const duration = dayjs(`2000-01-01 ${session.endTime}`).diff(dayjs(`2000-01-01 ${session.startTime}`), 'hour', true);
                     monthlyData[month].hours += duration;
                     
@@ -3658,7 +3673,7 @@ export default function App() {
                 });
 
                 // Calculate revenue per month from transactions
-                data.transactions.filter(t => t.type === 'income' && t.category === 'Tuition').forEach(t => {
+                data.transactions.filter(t => t.type === 'income' && (t.category === 'Học phí' || t.category === 'Tuition')).forEach(t => {
                   if (cls.students.includes(t.relatedId || '')) {
                     const month = dayjs(t.date).format('MM/YYYY');
                     if (monthlyData[month]) {
@@ -4675,9 +4690,11 @@ export default function App() {
         totalSessions += sessions.filter(s => student.classes.includes(s.id) && s.status !== 'cancel').length;
       }
 
-      // Đếm NGÀY NGHỈ / BÙ TỪ BÀI HỌC THỰC TẾ tháng trước
+      // Đếm NGÀY NGHỈ / BÙ TỪ BÀI HỌC THỰC TẾ tháng trước (chỉ từ lớp mà HV đang học)
+      const studentClassIds = activeClasses.map(c => c.id);
       const prevMonthLessons = data.lessons.filter(l => 
         dayjs(l.date).isSame(prevMonth, 'month') && 
+        studentClassIds.includes(l.classId) &&
         l.attendance?.some(a => a.studentId === studentId) && 
         l.status !== 'cancel'
       );
@@ -4692,8 +4709,9 @@ export default function App() {
         return att?.status === 'make-up';
       }).length;
 
-      // Tính khấu trừ
-      const sessionsPerMonth = 8;
+      // Tính sessionsPerMonth tự động từ lịch học (số buổi/tuần × ~4.33 tuần/tháng)
+      const sessionsPerWeek = activeClasses.reduce((sum, c) => sum + (c.schedule || []).length, 0);
+      const sessionsPerMonth = Math.max(1, Math.round(sessionsPerWeek * 4.33));
       const deductions = Math.max(0, (absentSessions - makeupSessions) * (totalTuition / sessionsPerMonth));
 
       // Tính CÔNG NỢ từ các tháng cũ
