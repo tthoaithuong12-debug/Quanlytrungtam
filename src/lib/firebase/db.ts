@@ -110,21 +110,35 @@ export const FirebaseDB = {
   async saveAllData(data: AppData): Promise<void> {
     const batch = writeBatch(db);
 
-    const updateCollection = (colName: string, items: any[]) => {
+    const syncCollection = async (colName: string, items: any[]) => {
+      // 1. Lấy tất cả docs hiện có trên Firebase
+      const snapshot = await getDocs(collection(db, colName));
+      const existingIds = new Set(snapshot.docs.map(d => d.id));
+      const newIds = new Set(items.filter(item => item.id).map(item => item.id));
+
+      // 2. Thêm/cập nhật tất cả items hiện tại
       items.forEach(item => {
         if (!item.id) return;
         const docRef = doc(db, colName, item.id);
         batch.set(docRef, item, { merge: true });
       });
+
+      // 3. XÓA docs trên Firebase mà không còn trong data local
+      existingIds.forEach(id => {
+        if (!newIds.has(id)) {
+          const docRef = doc(db, colName, id);
+          batch.delete(docRef);
+        }
+      });
     };
 
-    updateCollection('students', data.students);
-    updateCollection('teachers', data.teachers);
-    updateCollection('classes', data.classes);
-    updateCollection('lessons', data.lessons);
-    updateCollection('transactions', data.transactions);
-    if (data.monthlyBills) updateCollection('monthlyBills', data.monthlyBills);
-    if (data.users && data.users.length > 0) updateCollection('users', data.users);
+    await syncCollection('students', data.students);
+    await syncCollection('teachers', data.teachers);
+    await syncCollection('classes', data.classes);
+    await syncCollection('lessons', data.lessons);
+    await syncCollection('transactions', data.transactions);
+    if (data.monthlyBills) await syncCollection('monthlyBills', data.monthlyBills);
+    if (data.users && data.users.length > 0) await syncCollection('users', data.users);
     
     const settingsRef = doc(db, 'settings', 'global');
     batch.set(settingsRef, data.settings, { merge: true });
