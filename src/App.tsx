@@ -3066,6 +3066,9 @@ export default function App() {
 
       const allClassSessions = generateAllSessions()
         .filter(s => {
+          // Chỉ hiển thị buổi học THỰC TẾ (đã được GV ghi nhận có lesson record)
+          // Loại bỏ hoàn toàn buổi "kế hoạch" chưa ghi nhận
+          if (!s.isActual) return false;
           const sessionDate = dayjs(s.date);
           const systemStart = dayjs('2026-03-01');
           const now = dayjs();
